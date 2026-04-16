@@ -1,0 +1,7 @@
+{
+  "name": "reviewlens-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ]
+}

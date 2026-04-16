@@ -1,0 +1,196 @@
+PRODUCT REVIEW ANALYTICS DASHBOARD USING SENTIMENT AND ASPECT-BASED SENTIMENT ANALYSIS
+
+A Project Documentation
+Submitted as a Requirement in
+Elective 4 (Special Topics on Data Analytics 2)
+ 
+I. INTRODUCTION
+
+1.1. Background of the Study
+Customer product reviews are a major source of information that influences purchase decisions and reflects customer satisfaction. Modern e-commerce and retail environments generate a large volume of reviews, making it difficult for businesses to manually read, summarize, and identify recurring concerns quickly. Consumer research has shown that reviews are widely used and considered essential in purchase decisions, highlighting the importance of extracting insights from review content efficiently (PowerReviews, 2023).
+
+Data analytics is suitable for this problem because product reviews are unstructured text that can be transformed into structured insights through natural language processing (NLP) and machine learning. Sentiment analysis helps classify reviews into sentiment categories (positive, neutral, negative), while text mining can extract themes such as common complaints and praises. This enables businesses to track customer satisfaction trends over time and prioritize improvement areas based on evidence rather than manual guessing (Tan et al., 2023; Mao et al., 2024).
+
+Despite the availability of reviews, current challenges include the time required for manual analysis, inconsistent interpretation across people, and delayed detection of recurring product issues. These inefficiencies can negatively affect decision-making related to product improvement, customer support response, and quality assurance.
+1.2. Problem Statement
+Businesses and sellers face difficulty in efficiently interpreting large volumes of product review text to identify overall customer sentiment and recurring product issues. Reviews often contain valuable feedback, but manual analysis is time-consuming and may cause delays in detecting common complaints that require immediate action. Since reviews strongly influence consumer decisions, the inability to quickly extract actionable insights can reduce customer satisfaction and competitiveness (PowerReviews, 2023).
+This project addresses the need for a web-based system that can automatically analyze product review datasets, classify sentiment, summarize key themes, and present insights through an interactive dashboard for decision support.
+ 
+II. OBJECTIVES OF THE STUDY
+
+2.1. General Objective
+
+To develop a web-based product review analytics dashboard that transforms customer review text into overall sentiment insights, aspect-based sentiment insights, and theme summaries to support data-driven decision-making.
+
+2.2. Specific Objectives
+
+1.	To collect and preprocess product review datasets by validating required fields and performing text cleaning, tokenization, and normalization.
+2.	To apply appropriate data mining techniques, including sentiment classification and aspect-based sentiment analysis (ABSA), to label reviews as positive, neutral, or negative and compute sentiment polarity for key product aspects.
+3.	To extract and summarize key product aspects and themes from reviews (e.g., delivery, quality, price) and identify frequent complaints and praises per aspect.
+4.	To develop a functional web-based analytics dashboard that presents sentiment distribution, trends (when timestamps are available), and theme summaries with filtering and export features.
+5.	To evaluate the performance of the sentiment classification model u
+
+
+III. SCOPE AND DELIMITATIONS
+
+3.1.  Scope
+
+•	The system will accept product review datasets via CSV/Excel upload and will process review text with optional fields such as rating, date, and product/category.
+•	The system will apply text preprocessing, sentiment classification, and aspect-based sentiment analysis to produce overall sentiment labels/scores and aspect-level sentiment results.
+•	The system will extract keywords/phrases to summarize common complaints and praise themes.
+•	The system will display results through a web dashboard with visualizations, filtering, searching, and export features.
+•	The intended users include sellers, product managers, and customer support teams who need faster review insights for decision-making.
+
+3.2.  Delimitations
+
+•	The project will not implement real-time review scraping or direct integration with e-commerce platforms.
+•	The system will be designed for batch analysis of uploaded datasets rather than continuous streaming data.
+•	Advanced NLP tasks such as sarcasm detection and deep contextual understanding will not be prioritized in the prototype.
+•	Multilingual sentiment analysis will not be a main focus unless included as an extension.
+•	No database will be used in the prototype; outputs will be file-based (exported reports/results).
+
+
+IV. REVIEW OF RELATED LITERATURE AND SYSTEMS
+
+4.1. Related Studies
+
+Sentiment analysis is a well-established area in NLP that focuses on extracting and classifying opinions expressed in text into polarity categories such as positive and negative. Liu (2012) explains that sentiment analysis (opinion mining) aims to identify and analyze opinions, sentiments, and evaluations from textual data, which makes it suitable for analyzing product reviews.
+
+Recent literature shows that sentiment analysis pipelines typically include preprocessing, feature representation (e.g., TF-IDF or embeddings), and classification using machine learning, deep learning, or ensemble learning approaches (Tan et al., 2023; Mao et al., 2024). For product reviews, transformer-based and hybrid approaches are widely studied due to their ability to capture context and improve classification performance compared with simpler baselines (Ghatora et al., 2024; Daza et al., 2024).
+
+Recent work in e-commerce review analytics highlights the value of extracting not only overall sentiment but also fine-grained, aspect-based sentiment to better understand drivers of customer satisfaction (Davoodi et al., 2025; Wankhade et al., 2024).
+
+4.2. Related Systems
+
+Existing tools provide review analytics, but many require paid subscriptions or platform-specific integration. General analytics dashboards often focus on numerical KPIs and may not directly provide sentiment insights from unstructured text. This proposed system focuses on a lightweight, upload-based workflow for sentiment analysis and thematic summarization, suitable for small businesses or academic prototyping, while emphasizing interpretability and evaluability.
+
+V. CONCEPTUAL FRAMEWORK
+Input
+The system accepts a customer review dataset (CSV/Excel) containing review text and optional fields such as rating, date, and product/category.
+Process
+The system validates the dataset, preprocesses the text, performs overall sentiment classification and aspect-based sentiment analysis (e.g., delivery, quality, price), extracts themes/keywords, and aggregates results by product and time.
+Output
+The system generates a web dashboard that displays overall sentiment distribution, aspect-level sentiment breakdown, sentiment trends (if dates exist), top complaint and praise themes, and provides filtering and export features.
+
+VI. METHODOLOGY
+
+6.1. Data Source and Description
+•	Dataset Source: Public datasets from repositories such as Kaggle.
+•	Type of Data: Primarily unstructured text (reviews) with optional structured columns (rating, date, product/category).
+•	Attributes/Features: Review text, predicted sentiment label, sentiment score, extracted keywords/themes, and optional metadata.
+
+6.2. Data Preprocessing
+
+•	Text cleaning (lowercasing, punctuation removal, whitespace normalization).
+•	Tokenization and stopword removal.
+•	Handling missing values by removing empty reviews or marking missing metadata fields.
+•	Transforming text into numerical features (e.g., TF-IDF vectors) for classification.
+
+6.3. Data Analytics Techniques
+
+•	Chosen Technique: Sentiment Classification and Aspect-Based Sentiment Analysis (ABSA)
+•	Justification: Overall sentiment supports quick satisfaction monitoring, while ABSA identifies which product aspects drive negative/positive sentiment for better prioritization. (Tan et al., 2023; Mao et al., 2024).
+•	Supporting Technique: Text mining for aspect/theme extraction and keyword/phrase summarization.
+
+6.4. System Development Methodology
+
+The project will use an Agile/Iterative approach with incremental development:
+1.	Requirements and dataset preparation
+2.	Prototype NLP pipeline and baseline classifier
+3.	Web dashboard development
+4.	Integration and testing
+5.	Evaluation and documentation
+
+VII. SYSTEM ARCHITECTURE AND DESIGN
+
+7.1. System Architecture
+
+•	Frontend: HTML/CSS/JavaScript dashboard UI for upload, filters, and visualization.
+•	Analytics Engine: Python and/or R scripts for preprocessing, sentiment classification, aspect-based sentiment analysis, theme extraction, and evaluation.
+•	Storage: No database; file-based inputs and outputs (e.g., processed CSV exports and summary JSON for charts).
+
+7.2. Functional Requirements
+
+•	The system shall allow users to upload CSV/Excel review datasets.
+•	The system shall validate required columns (at minimum: review text).
+•	The system shall preprocess text and perform sentiment classification and aspect-based sentiment analysis.
+•	The system shall compute overall and aspect-level sentiment summaries and extract key themes/aspects.
+•	The system shall present results in a dashboard with filters and export features.
+
+7.3. Non-Functional Requirements
+
+•	Performance: The system should process a moderate dataset within reasonable time for classroom-scale use.
+•	Usability: The interface should be simple with clear labels, charts, and filters for non-technical users.
+•	Security (basic): Uploaded datasets should not be publicly exposed; the system should avoid storing sensitive identifiers and should support local/offline use if required.
+
+
+VIII. TOOLS AND TECHNOLOGIES
+
+•	Frontend: HTML, CSS, JavaScript or React + Tailwind CSS (dashboard interface, file upload, filters, and visualizations).
+•	Analytics / NLP / ML:
+o	Python: pandas, numpy, scikit-learn, nltk/spaCy, matplotlib/plotly
+o	R (optional/support	): tidyverse, tidytext, tm/quanteda, caret, ggplot2/plotly
+•	Database: None (file-based workflow).
+•	Deployment Environment: Web-based UI (local hosting for prototype), with local execution of analytics scripts to generate dashboard-ready outputs.
+
+
+IX. EVALUATION PLAN
+
+Model Evaluation Metrics
+•	Accuracy
+•	Precision
+•	Recall
+•	F1-score
+System Testing Methods
+•	Functional testing (upload, validation, processing, filtering, export).
+•	Basic user acceptance testing (short feedback from target users on clarity and usefulness of insights).
+
+
+X. PROJECT TIMELINE
+
+Phase	Activities	Target Output
+Week 1–2	Dataset selection, requirements gathering, initial UI layout	Dataset + project plan
+Week 3–4	Text preprocessing pipeline implementation	Cleaned dataset + preprocessing scripts
+Week 5–6	Sentiment classifier development (baseline) + model evaluation	Evaluation metrics report
+Week 7–8	Theme/keyword extraction + aggregation logic	Theme summaries + aggregated insights
+Week 9–10	Web dashboard implementation (HTML/CSS/JS)	Working dashboard UI
+Week 11	Integration + functional testing	Integrated prototype
+Week 12	Final evaluation, documentation, and presentation preparation	Final paper + demo-ready system
+
+
+XI. EXPECTED OUTPUTS
+
+•	A functional web-based sentiment analysis dashboard for product reviews.
+•	A trained sentiment classification and aspect-based sentiment analysis model with evaluation metrics.
+•	Aspect/theme summaries highlighting common complaints and praises per product aspect.
+•	Exportable processed review outputs and summary results.
+•	Technical documentation describing system flow, methods, and evaluation.
+
+
+XII. SIGNIFICANCE OF THE PROJECT
+
+The system benefits target users by reducing the time needed to interpret customer feedback and by providing structured insights for prioritizing product improvements and customer support actions. For organizations, it supports faster and more consistent decisions based on evidence from customer reviews. Academically, it strengthens practical skills in text mining, classification, system development, and evaluation.
+
+
+XIII. ETHICAL CONSIDERATIONS
+
+The project will ensure data privacy by using public datasets or consent-based data collection and removing personal identifiers where applicable. Responsible data use will be applied by limiting analysis to relevant review content and avoiding misuse of sensitive information. The project will also consider bias and fairness by acknowledging that models may reflect dataset imbalances and by reporting evaluation results clearly.
+
+
+XIV. REFERENCES
+
+Davoodi, L., Mezei, J., & Heikkilä, M. (2025). Aspect-based sentiment classification of user reviews to understand customer satisfaction of e-commerce platforms. Electronic Commerce Research. https://doi.org/10.1007/s10660-025-09948-4\
+
+Daza, A., González Rueda, N. D., Aguilar Sánchez, M. S., Robles Espíritu, W. F., & Chauca Quiñones, M. E. (2024). Sentiment analysis on e-commerce product reviews using machine learning and deep learning algorithms: A bibliometric analysis, systematic literature review, challenges and future works. International Journal of Information Management Data Insights, 4(2), 100267. https://doi.org/10.1016/j.jjimei.2024.100267
+
+Ghatora, P. S., Hosseini, S. E., Pervez, S., Iqbal, M. J., & Shaukat, N. (2024). Sentiment analysis of product reviews using machine learning and pre-trained LLM. Big Data and Cognitive Computing, 8(12), 199. https://doi.org/10.3390/bdcc8120199
+
+Hadero, H. (2023, August 11). Amazon is rolling out a generative AI feature that summarizes product reviews. AP News. https://apnews.com/article/amazon-generative-ai-reviews-products-4db85ac68c0d46f7b728b9da48da1a96
+
+Mao, Y., Liu, Q., & Zhang, Y. (2024). Sentiment analysis methods, applications, and challenges: A systematic literature review. Journal of King Saud University – Computer and Information Sciences, 36(4), 102048. https://doi.org/10.1016/j.jksuci.2024.102048
+
+PowerReviews. (2023, May 11). Survey: The ever-growing power of reviews (2023 edition). https://www.powerreviews.com/power-of-reviews-2023/
+
+Tan, K. L., Lee, C. P., & Lim, K. M. (2023). A survey of sentiment analysis: Approaches, datasets, and future research. Applied Sciences, 13(7), 4550. https://doi.org/10.3390/app13074550
+
+Wankhade, M., Kulkarni, C., & Rao, A. C. S. (2024). A survey on aspect base sentiment analysis methods and challenges. Applied Soft Computing, 167, 112249. https://doi.org/10.1016/j.asoc.2024.112249
