@@ -27,6 +27,8 @@ def build_monthly_trends(processed_df, sentiment_col):
             for month, group in trend_df.groupby('month'):
                 month_dist = group[sentiment_col].value_counts()
                 month_total = len(group)
+                # Each row is already shaped for the trends chart, so the frontend
+                # can plot counts or percentages without recomputing aggregates.
                 trends_data.append({
                     'month': str(month),
                     'total': month_total,

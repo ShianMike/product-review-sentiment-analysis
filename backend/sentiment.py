@@ -109,6 +109,9 @@ class SentimentClassifier:
         - class_weight neutral=2.5 compensates for the minority neutral class.
         """
         # Demo guide: this baseline model choice is what we explain in the methods slide.
+        # TF-IDF is created here for sentiment modeling. It converts each review
+        # into a sparse numeric vector where informative words/phrases get higher
+        # weights than generic terms, which makes Logistic Regression more reliable.
         self.vectorizer = TfidfVectorizer(
             max_features=50000,
             ngram_range=(1, 2),   # Unigrams + bigrams
@@ -149,7 +152,10 @@ class SentimentClassifier:
         print(f"Training set: {len(X_train)} reviews")
         print(f"Test set: {len(X_test)} reviews")
         
-        # Fit vocabulary on training data only to avoid test-set leakage.
+        # TF-IDF fitting happens here:
+        # 1) learn vocabulary + IDF weights from training data only
+        # 2) transform train/test text into aligned numeric features
+        # This avoids leakage and keeps evaluation realistic.
         print("Fitting TF-IDF vectorizer...")
         X_train_tfidf = self.vectorizer.fit_transform(X_train)
         X_test_tfidf = self.vectorizer.transform(X_test)
@@ -213,7 +219,8 @@ class SentimentClassifier:
             raise RuntimeError("Model has not been trained yet. "
                              "Train the model or load a saved model first.")
         
-        # Use the same fitted vectorizer pipeline as training.
+        # Reuse the exact fitted TF-IDF mapping from training so inference columns
+        # match model expectations (same vocabulary and IDF weights).
         X_tfidf = self.vectorizer.transform(texts)
         labels = self.model.predict(X_tfidf)
         probabilities = self.model.predict_proba(X_tfidf)

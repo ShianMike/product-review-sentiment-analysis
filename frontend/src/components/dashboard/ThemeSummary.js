@@ -2,6 +2,14 @@ import React, { useState } from 'react';
 import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
 import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGuide';
 
+/**
+ * ThemeSummary renders the non-chart text analytics section of the dashboard.
+ *
+ * Instead of calling the backend itself, it consumes the already-fetched
+ * `theme_summary` object prepared during the analysis pipeline. That payload
+ * contains ranked keywords, phrase groupings, complaint/praise buckets, and
+ * word-frequency data.
+ */
 function ThemeSummary({ data }) {
   const { theme_summary } = data;
   const [selectedSentiment, setSelectedSentiment] = useState('all');
@@ -18,6 +26,7 @@ function ThemeSummary({ data }) {
 
   const { overall_keywords, complaints_and_praises, word_cloud_data, themes_by_sentiment } = theme_summary;
 
+  // Convert backend summary counts into quick ratios for the stat cards.
   const praisesCount = complaints_and_praises?.praises?.count || 0;
   const complaintsCount = complaints_and_praises?.complaints?.count || 0;
   const totalSentiment = praisesCount + complaintsCount;
@@ -28,10 +37,15 @@ function ThemeSummary({ data }) {
   const topComplaintKeyword = complaints_and_praises?.complaints?.keywords?.[0];
   const strongestKeyword = overall_keywords?.[0];
   const largestWord = word_cloud_data?.[0];
+  // Filter the sentiment-specific theme groups client-side for instant switching
+  // between tabs without requesting new backend data.
   const visibleSentimentGroups = themes_by_sentiment
     ? Object.entries(themes_by_sentiment).filter(([sentiment]) => selectedSentiment === 'all' || sentiment === selectedSentiment)
     : [];
 
+  // Theme-section info buttons pull their modal copy from this object.
+  // Each entry combines fixed explanatory text with live keyword/theme counts
+  // so the guide reflects the currently loaded review dataset.
   const guideSections = {
     praises: {
       title: 'Praises',

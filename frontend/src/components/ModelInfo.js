@@ -59,6 +59,9 @@ function ModelInfo() {
   );
   const classOrder = classLabels.length ? classLabels.map(toTitleCase).join(', ') : 'Unavailable';
 
+  // The Model Info page uses the same guide pattern as the dashboard:
+  // each section header button selects one key here, and the shared modal
+  // renders the matching explanatory cards using live backend metrics.
   const guideSections = {
     system: {
       title: 'System Status',

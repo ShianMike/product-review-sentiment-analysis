@@ -47,6 +47,8 @@ def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
         aspect_theme_summary[aspect] = {
             'total_mentions': len(positive_texts) + len(negative_texts) + len(neutral_texts),
             'neutral_mentions': len(neutral_texts),
+            # These buckets feed the aspect insight cards that summarize what users
+            # praise most and complain about most for each detected aspect.
             'praises': {
                 'count': len(positive_texts),
                 'keywords': extract_keywords_tfidf(positive_texts, top_n=top_n),
@@ -59,6 +61,7 @@ def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
             },
         }
 
+    # Sort by mention volume so the UI surfaces the most-discussed aspects first.
     return dict(
         sorted(
             aspect_theme_summary.items(),

@@ -26,6 +26,7 @@ env/
 # Windows
 Thumbs.db
 desktop.ini
+cloudflared.exe
 
 # Node / React
 node_modules/

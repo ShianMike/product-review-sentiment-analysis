@@ -3,7 +3,21 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { startAnalyzeJob, getAnalyzeJobStatus } from '../api';
 
-// Demo guide: use this component when presenting the working upload-to-analysis flow.
+/**
+ * FileUpload owns the async fetch workflow that eventually powers the dashboard.
+ *
+ * High-level data flow:
+ * 1) user selects a CSV/XLS/XLSX file
+ * 2) frontend uploads it with startAnalyzeJob(...)
+ * 3) backend returns a job ID immediately
+ * 4) frontend polls getAnalyzeJobStatus(jobId)
+ * 5) when status becomes "completed", the backend includes `job.result`
+ * 6) that result object is handed to App via onAnalysisComplete(...)
+ * 7) App stores it and renders <Dashboard data={analysisData} />
+ *
+ * This means the visualization components themselves do not fetch data. They
+ * only receive the already-prepared analysis payload returned by this flow.
+ */
 function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState('');
@@ -11,6 +25,8 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [progressPercent, setProgressPercent] = useState(0);
   const [selectedFile, setSelectedFile] = useState(null);
 
+  // react-dropzone gives us accepted and rejected files. We keep validation
+  // lightweight here because the backend still performs the real file checks.
   const onDrop = useCallback((acceptedFiles, rejectedFiles) => {
     setError(null);
     if (rejectedFiles.length > 0) {
@@ -33,6 +49,18 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
     multiple: false,
   });
 
+  /**
+   * Start the backend job, then poll until the final analysis payload arrives.
+   *
+   * Why polling is used:
+   * - large review files can take time to preprocess and analyze
+   * - backend needs time to build all chart-ready aggregates
+   * - progress updates make the UI feel responsive during long analysis runs
+   *
+   * The final result returned by the backend already contains visualization data
+   * such as sentiment distribution, aspect summaries, themes, trends, exports,
+   * and optional product/reviews payloads.
+   */
   const handleAnalyze = async () => {
     if (!selectedFile) return;
     setIsLoading(true);
@@ -42,6 +70,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
     setProgressPercent(0);
 
     try {
+      // First request: upload the raw file and ask backend to queue analysis.
       const startResponse = await startAnalyzeJob(selectedFile);
       const jobId = startResponse.data?.job_id;
 
@@ -55,9 +84,13 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
 
       const maxPollCycles = 900; // ~15 minutes at 1-second intervals
       for (let pollCount = 0; pollCount < maxPollCycles; pollCount += 1) {
+        // Follow-up request: ask the backend where the job currently is.
         const statusResponse = await getAnalyzeJobStatus(jobId);
         const job = statusResponse.data || {};
 
+        // Reflect backend progress messages directly in the upload UI so users
+        // can see whether preprocessing, sentiment inference, theme extraction,
+        // or export generation is currently running.
         if (typeof job.progress === 'number') {
           setProgressPercent(Math.max(0, Math.min(100, Math.round(job.progress))));
         }
@@ -68,6 +101,8 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
           setProgressPercent(100);
           setProgressStage('Completed');
           setProgress('Analysis complete!');
+          // This callback is the handoff point from "fetching" to "visualizing".
+          // job.result is the single payload later consumed by Dashboard.
           onAnalysisComplete(job.result);
           return;
         }
@@ -76,11 +111,13 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
           throw new Error(job.error || 'Analysis failed');
         }
 
+        // Poll once per second to balance responsiveness and backend load.
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       throw new Error('Analysis timed out. Please try again with a smaller file.');
     } catch (err) {
+      // Normalize backend or network errors into one user-facing message.
       const message = err.response?.data?.error || err.message || 'Analysis failed';
       setError(message);
       setProgress('');

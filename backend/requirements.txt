@@ -1,9 +1,35 @@
+# Flask powers the backend API server that handles uploads, analysis routes,
+# health checks, and export endpoints for the dashboard.
 flask==3.1.0
+
+# flask-cors lets the frontend dev server call the Flask API from another
+# origin during local development.
 flask-cors==5.0.1
+
+# pandas is the main data-processing library used to read review datasets,
+# clean DataFrames, aggregate analytics, and export CSV/JSON results.
 pandas==2.2.3
+
+# numpy supports numeric array operations used when ranking keywords and
+# working with model probability data.
 numpy==1.26.4
+
+# scikit-learn provides the TF-IDF vectorizer, Logistic Regression model,
+# train/test split utilities, and evaluation metrics for sentiment analysis.
 scikit-learn==1.6.1
+
+# nltk is used for text preprocessing such as stopword removal, tokenization,
+# and lemmatization before training and prediction.
 nltk==3.9.1
+
+# openpyxl is the Excel engine pandas uses in this project to read uploaded
+# .xlsx files from users.
 openpyxl==3.1.5
+
+# joblib saves and reloads the trained sentiment model, TF-IDF vectorizer,
+# and evaluation metrics so the API can reuse them without retraining.
 joblib==1.4.2
+
+# TextBlob supplies rule-based polarity scoring for aspect sentiment analysis
+# and for calibrating uncertain single-review predictions.
 textblob==0.18.0

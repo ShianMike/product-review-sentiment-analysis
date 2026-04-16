@@ -8,6 +8,9 @@ export function GuideButton({
   controls = 'dashboard-info-guide',
   className = '',
 }) {
+  // All dashboard help/info buttons use this one trigger component so the
+  // button behavior stays consistent across overview, themes, trends, aspects,
+  // and model-info screens.
   return (
     <button
       type="button"
@@ -111,6 +114,8 @@ export function InfoGuideModal({
 
         <div className="modal-body">
           <div className="info-guide-grid">
+            {/* Parent sections define the content object. This modal only renders
+                the selected guide's title, summary, and item cards. */}
             {(activeGuide.items || []).map((item) => (
               <article key={item.label} className="info-guide-card">
                 <div className="info-guide-card-top">

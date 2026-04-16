@@ -20,6 +20,19 @@ const tooltipStyle = {
   color: 'var(--text-secondary)',
 };
 
+/**
+ * Overview section for the dashboard.
+ *
+ * This component does not fetch data from the backend. It receives the completed
+ * analysis payload from Dashboard/App and converts a few response objects into
+ * shapes that Recharts can render directly.
+ *
+ * Main transformations:
+ * - sentiment_distribution -> pieData
+ * - rating_distribution -> ratingData
+ * - aspect_summary -> topAspects preview cards
+ * - theme_summary/product_summary -> supporting insight cards
+ */
 function SentimentOverview({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);
   const [selectedProductFocus, setSelectedProductFocus] = useState('all');
@@ -32,12 +45,15 @@ function SentimentOverview({ data }) {
     total_reviews,
   } = data;
 
+  // Recharts pie charts prefer an array of objects, so convert the backend
+  // sentiment buckets into a list with labels, values, and colors.
   const pieData = [
     { name: 'Positive', value: sentiment_distribution.positive.count, color: COLORS.positive },
     { name: 'Neutral', value: sentiment_distribution.neutral.count, color: COLORS.neutral },
     { name: 'Negative', value: sentiment_distribution.negative.count, color: COLORS.negative },
   ];
 
+  // Convert keyed rating counts like {"1": 12, "2": 5} into chart rows.
   const ratingData = rating_distribution
     ? Object.entries(rating_distribution).map(([rating, count]) => ({
         rating: `${rating}★`,
@@ -76,6 +92,9 @@ function SentimentOverview({ data }) {
     : topProducts.find((product) => product.product_id === activeProductFocus) || null;
   const visibleTopProducts = focusedProduct ? [focusedProduct] : topProducts.slice(0, 8);
 
+  // Each info button in this section maps to one entry in `guideSections`.
+  // The content is built from the current analysis payload, so the modal copy
+  // changes with the uploaded dataset instead of using hard-coded examples.
   const guideSections = {
     positive: buildSentimentGuide({
       title: 'Positive Reviews',
@@ -747,6 +766,8 @@ function SentimentCard({
 }
 
 function buildSentimentGuide({ title, label, count, percentage, totalReviews, interpretation }) {
+  // Helper used by the Positive / Neutral / Negative cards so those three
+  // buttons share the same explanation structure with different live values.
   return {
     title,
     description: `This card summarizes how many reviews were classified as ${label} and what share of the full dataset that represents.`,

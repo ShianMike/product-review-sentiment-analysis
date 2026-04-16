@@ -7,6 +7,14 @@ Runtime flow:
 2. Run sentiment, ABSA, themes, trends, and review-table summarization.
 3. Return either synchronous results or async job progress + final payload.
 
+Frontend fetch relationship:
+1. React uploads a dataset to `/api/analyze/start`.
+2. This backend returns a `job_id` immediately.
+3. React polls `/api/analyze/status/<job_id>` for progress updates.
+4. Once the job finishes, the status payload includes `result`.
+5. That `result` object is passed directly into dashboard components to render
+   charts, cards, trends, exports, and optional table views.
+
 Demo mapping:
 - Slide 6: System Architecture and Runtime Workflow
 - Slide 9: Working Prototype and User Flow
@@ -151,8 +159,15 @@ def ensure_latest_classifier():
 
 
 # ─── Async job registry ───────────────────────────────────────────────────────
-# Maps job_id -> progress/result dict.  A simple dict + Lock is sufficient for
-# single-process classroom deployments and avoids Redis/Celery complexity.
+# Maps job_id -> progress/result dict.
+#
+# Why this exists:
+# - the browser should not wait on one long blocking request for large datasets
+# - analysis needs multiple progress stages for a visible progress bar
+# - once analysis is done, the final dashboard payload must still be retrievable
+#
+# A simple dict + Lock is sufficient for single-process classroom deployments
+# and avoids Redis/Celery complexity.
 ANALYSIS_JOBS = {}
 ANALYSIS_JOBS_LOCK = Lock()
 
@@ -163,7 +178,12 @@ def _now_utc_iso():
 
 
 def _create_analysis_job(filename):
-    """Create a new in-memory progress record for an analysis job."""
+    """Create a new in-memory progress record for an analysis job.
+
+    The resulting dict becomes the source of truth for the frontend polling
+    flow. During processing, the browser reads `status`, `progress`, `stage`,
+    and `message`. After completion, it also reads `result`.
+    """
     job_id = uuid.uuid4().hex
     now_iso = _now_utc_iso()
     with ANALYSIS_JOBS_LOCK:
@@ -202,8 +222,13 @@ def _get_analysis_job(job_id):
 
 
 def _emit_progress(progress_callback, progress, stage, message):
-    """Safely call the optional progress callback used by async analysis jobs."""
-    # Synchronous flows pass no callback, so this remains a no-op there.
+    """Safely call the optional progress callback used by async analysis jobs.
+
+    `_analyze_dataframe` is shared by sync and async routes. This helper keeps
+    the core analytics pipeline unaware of HTTP/job details:
+    - sync route passes no callback -> no progress tracking is needed
+    - async route passes a callback -> job registry is updated per stage
+    """
     if progress_callback:
         progress_callback(progress, stage, message)
 
@@ -226,6 +251,11 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
 
     This single function is called by both the synchronous `/api/analyze` route
     and the background thread spawned by `/api/analyze/start`.
+
+    Most importantly, this function produces the exact response schema that the
+    frontend dashboard consumes. In the sync flow it is returned immediately as
+    JSON. In the async flow it is stored under `job.result` and later returned
+    by `/api/analyze/status/<job_id>` once the job completes.
     """
     if len(df) == 0:
         raise ValueError('Uploaded file is empty')
@@ -239,7 +269,8 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         was_sampled = False
 
     _emit_progress(progress_callback, 15, 'Preprocessing', 'Cleaning review text and detecting columns...')
-    # Column auto-detection maps user datasets into the standard pipeline schema.
+    # Column auto-detection maps arbitrary user datasets into the standard
+    # pipeline schema expected by the rest of the backend.
     processed_df = preprocess_uploaded_file(df, text_col=text_col)
 
     if len(processed_df) == 0:
@@ -264,19 +295,22 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
 
     _emit_progress(progress_callback, 60, 'Aspect Analysis', 'Extracting aspect-level sentiment signals...')
     original_texts = processed_df['original_text'].tolist()
+    # aspect_summary feeds the aspect comparison visual, while aspect_results stay
+    # attached per review for exports and any future drill-down/detail views.
     aspect_results, aspect_summary = analyze_aspects_batch(original_texts)
     processed_df['aspects'] = [json.dumps(ar) for ar in aspect_results]
 
-    # Build complaint/praise keyword signals for each detected aspect.
+    # Feed the per-aspect praise/complaint insight cards shown beside aspect stats.
     aspect_theme_summary = build_aspect_theme_summary(
         processed_texts=processed_df['processed_text'].tolist(),
         aspect_results=aspect_results,
         top_n=8,
     )
-    # Build month-over-month trend lines for the most discussed aspects.
+    # Feed the aspect trend chart with month-over-month sentiment snapshots.
     aspect_trends = build_aspect_trends(processed_df, aspect_results, limit=8)
 
     _emit_progress(progress_callback, 75, 'Theme Extraction', 'Computing top keywords, phrases, and themes...')
+    # Feed the keyword lists, phrase panels, complaints/praises, and word cloud.
     theme_summary = generate_theme_summary(
         texts=original_texts,
         sentiment_labels=processed_df[sentiment_col].tolist(),
@@ -303,20 +337,22 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         }
     }
 
-    # Build optional monthly trend payload only when date data is available.
+    # Feed the overall monthly sentiment charts only when usable date data exists.
     trends = build_monthly_trends(processed_df, sentiment_col)
 
     rating_dist = None
     if 'rating' in processed_df.columns:
-        # Keep keys stringified for stable JSON output and frontend chart handling.
+        # Feed the rating histogram / bar chart. Keep keys stringified for stable
+        # JSON output and predictable frontend chart handling.
         rating_dist = processed_df['rating'].value_counts().sort_index().to_dict()
         rating_dist = {str(k): int(v) for k, v in rating_dist.items()}
 
-    # Optional product-level aggregate comparisons when product IDs are available.
+    # Feed the product comparison cards/table plus the per-product trend chart.
     product_summary = build_product_summary(processed_df, sentiment_col, limit=12)
     product_trends = build_product_trends(processed_df, sentiment_col, limit=8)
 
-    # Build a bounded reviews table payload for faster dashboard rendering.
+    # Feed the reviews table payload. This is still bounded because the table view
+    # is heavier than the summary charts and is not presentation-ready yet.
     reviews_data = build_reviews_table(processed_df, sentiment_col, limit=500)
 
     _emit_progress(progress_callback, 95, 'Export', 'Saving processed export files...')
@@ -326,7 +362,11 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     # Drop raw JSON-as-string aspects from CSV export to keep file human-readable.
     export_df.to_csv(export_path, index=False)
 
-    # Response schema is consumed directly by multiple frontend dashboard sections.
+    # Response keys are named to match frontend visualization sections directly.
+    # This keeps the fetch/render contract simple:
+    # - backend performs the heavy aggregation work once
+    # - frontend receives one ready-to-render payload
+    # - child components only do light reshaping for chart libraries
     response = {
         'status': 'success',
         'filename': filename,
@@ -343,6 +383,8 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         'rating_distribution': rating_dist,
         'reviews': reviews_data,
         'export_file': export_filename,
+        # Surface which optional columns were successfully detected so the
+        # frontend can explain why some charts or sections may be unavailable.
         'columns_detected': {
             'text': True,
             'rating': 'rating' in processed_df.columns,
@@ -365,6 +407,11 @@ def _run_analysis_job(job_id, file_path, filename, ext, text_col):
     Runs in a daemon thread so the HTTP layer returns immediately with a job_id.
     The frontend polls /api/analyze/status/<job_id> to track progress and retrieve
     the final result payload once status is 'completed'.
+
+    This function is the bridge between:
+    - the async HTTP route that starts a job
+    - the shared analytics pipeline in `_analyze_dataframe`
+    - the in-memory job registry used by the progress UI
     """
     try:
         # Move job from queued -> running before any heavy disk/compute work.
@@ -383,6 +430,8 @@ def _run_analysis_job(job_id, file_path, filename, ext, text_col):
         else:
             df = pd.read_excel(file_path)
 
+        # Reuse the exact same pipeline and response schema as the synchronous
+        # route so the dashboard sees one consistent payload shape.
         result = _analyze_dataframe(
             df=df,
             filename=filename,
@@ -537,6 +586,11 @@ def analyze():
 
     Use this route for small files (< 5 000 rows) or development testing.
     For larger datasets, prefer the async /api/analyze/start flow.
+
+    Response contract:
+    - returns the same final payload shape used by the async completed job flow
+    - frontend dashboard sections can consume it without checking which route
+      produced it
     """
     # Demo guide: this route is the clearest input → preprocessing → output flow.
     if 'file' not in request.files:
@@ -565,6 +619,8 @@ def analyze():
         # Get column mappings from form data
         text_col = request.form.get('text_column', None)
 
+        # The sync route simply returns the pipeline output directly instead of
+        # storing it in a job record first.
         response = _analyze_dataframe(df=df, filename=filename, text_col=text_col)
         return jsonify(response)
     
@@ -584,6 +640,12 @@ def analyze_start():
     Returns a job_id immediately so the browser does not time out on large files.
     The frontend polls /api/analyze/status/<job_id> every few seconds and renders
     a live progress bar until the status transitions to 'completed' or 'failed'.
+
+    Request/response flow:
+    1. Browser uploads the file here.
+    2. Backend saves a temporary copy and creates a job record.
+    3. A background thread starts processing the file.
+    4. Browser receives `job_id` right away and begins polling status.
     """
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
@@ -600,13 +662,15 @@ def analyze_start():
 
     text_col = request.form.get('text_column', None)
 
-    # Persist upload to disk so the background worker can read it after request returns.
+    # Persist upload to disk so the background worker can read it after the HTTP
+    # request has already returned to the browser.
     temp_name = f"upload_{uuid.uuid4().hex}{ext}"
     temp_path = os.path.join(UPLOAD_FOLDER, temp_name)
     file.save(temp_path)
 
     job_id = _create_analysis_job(filename)
-    # Threaded execution keeps request latency low for large datasets.
+    # Threaded execution keeps request latency low for large datasets while the
+    # real analysis continues in the background.
     thread = Thread(
         target=_run_analysis_job,
         args=(job_id, temp_path, filename, ext, text_col),
@@ -633,6 +697,8 @@ def analyze_status(job_id):
     if not job:
         return jsonify({'error': 'Analysis job not found'}), 404
 
+    # Keep the progress payload small while the job is still running so polling
+    # stays lightweight. The large dashboard result is attached only at the end.
     payload = {
         'job_id': job['job_id'],
         'filename': job['filename'],

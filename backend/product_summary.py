@@ -49,6 +49,7 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
         if 'sentiment_confidence' in group.columns:
             avg_confidence = round(float(group['sentiment_confidence'].mean()), 3)
 
+        # Each row becomes one product record for the ranking chart/table.
         rows.append({
             'product_id': product_id,
             'total_reviews': total,
@@ -67,8 +68,11 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
         return None
 
     rows_sorted = sorted(rows, key=lambda item: (-item['total_reviews'], item['product_id']))
+    # Keep the product comparison visual focused on the most-discussed products.
     top_products = rows_sorted[:limit]
 
+    # Prefer products with a minimum review count when picking "best" and "risk"
+    # summary cards so a single outlier review does not dominate the callout.
     stable_pool = [item for item in rows if item['total_reviews'] >= 5]
     comparison_pool = stable_pool if stable_pool else rows
 
@@ -78,6 +82,7 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
     return {
         'total_products': len(rows),
         'top_products': top_products,
+        # These two records feed the top positive / top risk highlight cards.
         'top_positive_product': {
             'product_id': top_positive['product_id'],
             'net_sentiment': top_positive['net_sentiment'],
@@ -110,6 +115,7 @@ def build_product_trends(processed_df, sentiment_col, limit=8):
         return None
 
     product_counts = trend_df.groupby('product_id').size().sort_values(ascending=False)
+    # Limit multi-series charts to the busiest products so the legend stays usable.
     top_product_ids = [str(product_id) for product_id in product_counts.head(limit).index.tolist()]
 
     products = {}
@@ -127,6 +133,7 @@ def build_product_trends(processed_df, sentiment_col, limit=8):
             if month_total <= 0:
                 continue
 
+            # Each month row can be drawn directly in the per-product trend chart.
             month_rows.append({
                 'month': str(month),
                 'total': int(month_total),
@@ -144,6 +151,7 @@ def build_product_trends(processed_df, sentiment_col, limit=8):
         return None
 
     return {
+        # product_ids gives the frontend a stable selector order for chart series.
         'product_ids': list(products.keys()),
         'products': products,
         'total_products_with_dates': int(len(product_counts)),

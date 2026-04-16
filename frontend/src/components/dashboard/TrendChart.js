@@ -27,6 +27,18 @@ function formatMonthLabel(monthValue) {
   return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
+/**
+ * TrendChart renders time-based visualizations from backend-generated trend rows.
+ *
+ * The fetch already happened before this component mounts. The backend returns:
+ * - `trends` for overall month-level sentiment movement
+ * - `product_trends` for optional product-specific month series
+ *
+ * This component's job is to:
+ * 1) select which trend series to view
+ * 2) normalize month labels and derive a few helper metrics
+ * 3) feed those rows into Recharts area/line/bar charts
+ */
 function TrendChart({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);
   const [selectedProductId, setSelectedProductId] = useState('all');
@@ -36,6 +48,8 @@ function TrendChart({ data }) {
   const productTrends = data?.product_trends || null;
   const productTrendOptions = Array.isArray(productTrends?.product_ids) ? productTrends.product_ids : EMPTY_TRENDS;
 
+  // Switch between overall trends and one selected product's trend series
+  // without making another backend request.
   const activeRawTrends = useMemo(() => {
     if (selectedProductId !== 'all') {
       const selected = productTrends?.products?.[selectedProductId];
@@ -59,6 +73,8 @@ function TrendChart({ data }) {
     () => activeRawTrends
       .map((t) => {
         const month = t.month.length > 7 ? t.month.substring(0, 7) : t.month;
+        // Backend gives counts and positive/negative percentages. The frontend
+        // derives neutral percentage and net sentiment for additional charts.
         const neutralRate = Math.round((t.neutral / t.total) * 100 * 10) / 10;
         const netSentiment = Math.round((t.positive_pct - t.negative_pct) * 10) / 10;
 
@@ -171,9 +187,12 @@ function TrendChart({ data }) {
       ? 'improving'
       : latest.netSentiment < (previous.netSentiment || 0)
         ? 'softening'
-        : 'steady'
+      : 'steady'
     : 'baseline';
 
+  // Every trend info button resolves to one of these guide entries.
+  // The descriptions are generated from the current filtered trend data, so
+  // the modal explains the exact months and values the user is looking at.
   const guideSections = {
     latest: {
       title: 'Latest Period Snapshot',

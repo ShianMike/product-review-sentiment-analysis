@@ -28,7 +28,13 @@ STOP_WORDS = set(stopwords.words('english')) | {'nan', 'none', 'null'}
 
 def extract_keywords_tfidf(texts, top_n=20):
     """
-    Extract top keywords from a corpus using TF-IDF scoring.
+        Extract top keywords from a corpus using TF-IDF scoring.
+
+        Why TF-IDF is used here:
+        - TF (term frequency) highlights words that appear often in review text.
+        - IDF (inverse document frequency) downweights words that appear in almost every review.
+        - The combination helps surface words that are both frequent and distinctive,
+            which is more useful for theme summaries than raw counts alone.
     
     Parameters:
     - texts: list of preprocessed review texts
@@ -41,6 +47,8 @@ def extract_keywords_tfidf(texts, top_n=20):
         return []
     
     custom_stop = list(STOP_WORDS)
+    # TF-IDF vectorization happens in this block. It converts text into weighted
+    # numeric features so we can rank keywords by importance, not just frequency.
     # Use unigrams+bigrams to capture both single terms and short product phrases.
     vectorizer = TfidfVectorizer(
         max_features=5000,
@@ -56,7 +64,8 @@ def extract_keywords_tfidf(texts, top_n=20):
         # Return empty output for degenerate corpora (for example all-stopword input).
         return []
     
-    # Get average TF-IDF score for each term across all documents
+    # Average per-term TF-IDF across all documents to get corpus-level theme signals.
+    # Terms with larger mean scores are treated as stronger dashboard keywords.
     avg_scores = np.asarray(tfidf_matrix.mean(axis=0)).flatten()  # type: ignore[union-attr]
     feature_names = vectorizer.get_feature_names_out()
     
@@ -208,10 +217,16 @@ def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
     
     Returns complete theme analysis dict with stable keys for API consumers.
     """
-    # Use processed texts for keyword extraction if available
+    # TF-IDF works best on normalized/clean text; use preprocessed text when provided.
     analysis_texts = processed_texts if processed_texts is not None else texts
     
-    # Build all theme artifacts in one pass so callers receive a stable response schema.
+    # Build all theme artifacts in one pass so callers receive a stable response
+    # schema. Each key maps to a specific visualization block in the dashboard:
+    # overall_keywords -> keyword chips/list
+    # overall_phrases -> recurring phrase panels
+    # themes_by_sentiment -> sentiment-specific breakdown cards/tabs
+    # complaints_and_praises -> praise/complaint summary cards
+    # word_cloud_data -> word cloud frequencies
     summary = {
         'overall_keywords': extract_keywords_tfidf(analysis_texts, top_n=20),
         'overall_phrases': extract_frequent_phrases(analysis_texts, top_n=15),

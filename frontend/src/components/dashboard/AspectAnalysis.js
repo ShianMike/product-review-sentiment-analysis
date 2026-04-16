@@ -23,6 +23,17 @@ const tooltipStyle = {
   color: 'var(--text-secondary)',
 };
 
+/**
+ * AspectAnalysis visualizes the aspect-focused slices of the fetched result.
+ *
+ * It receives:
+ * - aspect_summary from the backend ABSA aggregation
+ * - aspect_theme_summary for praise/complaint drill-down
+ * - aspect_trends for month-level aspect trend lines
+ *
+ * This component performs frontend-only reshaping so the chart library can
+ * render the data, but it does not recompute aspect analytics itself.
+ */
 function AspectAnalysis({ data }) {
   const { aspect_summary, aspect_theme_summary, aspect_trends } = data;
   const [selectedAspect, setSelectedAspect] = useState(null);
@@ -48,6 +59,7 @@ function AspectAnalysis({ data }) {
     : null;
   const mostMentioned = hasAspects ? aspectEntries[0] : null;
 
+  // Stacked bar chart data: one row per aspect with positive/neutral/negative counts.
   const barData = aspectEntries.map(([aspect, stats]) => ({
     aspect: toTitleCase(aspect),
     Positive: stats.positive_count,
@@ -57,6 +69,8 @@ function AspectAnalysis({ data }) {
     avg_polarity: stats.avg_polarity,
   }));
 
+  // Radar chart expects one numeric score per axis. We remap polarity from
+  // [-1, 1] into [0, 100] so the chart reads as negative -> neutral -> positive.
   const radarData = aspectEntries.map(([aspect, stats]) => ({
     aspect: toTitleCase(aspect),
     polarity: Math.round((stats.avg_polarity + 1) * 50),
@@ -69,6 +83,8 @@ function AspectAnalysis({ data }) {
     if (!selectedAspect) {
       return [];
     }
+    // Backend already grouped trend points by aspect name. We only pick the
+    // currently selected aspect's series for the line chart.
     const trendPoints = aspect_trends?.aspects?.[selectedAspect];
     return Array.isArray(trendPoints) ? trendPoints : [];
   }, [selectedAspect, aspect_trends]);
@@ -191,6 +207,10 @@ function AspectAnalysis({ data }) {
     );
   }
 
+  // Aspect-section info buttons read from this map.
+  // Some guides are always available (best/worst/radar/export), while others
+  // only exist when an aspect is selected so the modal can explain that
+  // specific aspect's live counts, phrases, and trend points.
   const guideSections = {
     best: {
       title: 'Best Rated Aspect',
