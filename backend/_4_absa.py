@@ -1,16 +1,23 @@
-"""aspect_trends.py
-Aspect-Based Sentiment Analysis (ABSA) Module
-Extracts product aspects from reviews and computes sentiment per aspect.
-Uses rule-based aspect detection + TextBlob polarity scoring.
+"""
+[Pipeline Step 4 of 11] Aspect-Based Sentiment Analysis (ABSA)
 
-Pipeline summary:
-1. Detect which aspect categories are mentioned by keyword/phrase match.
-2. For each detected aspect, score sentiment from relevant sentences.
-3. Aggregate per-review aspect signals into dashboard-level summary metrics.
+Detects which product aspects (quality, price, delivery, taste, service,
+appearance, usability) appear in each review and scores their sentiment
+using TextBlob polarity.
+
+Approach:
+1. Match aspect keywords / phrases via pre-compiled boundary-aware regexes.
+2. Isolate sentences mentioning the aspect and score them with TextBlob.
+3. Aggregate per-review signals into dashboard-level summary metrics.
+
+This is entirely rule-based — no learned aspect model — which keeps the
+prototype transparent and easy to explain during a defense.
 
 Demo mapping:
-- Slide 7: Methods and Techniques Used
-- Slide 10: Latest Demo Results for aspect summaries
+- Slide 7  : Methods and Techniques Used
+- Slide 10 : Latest Demo Results — aspect summaries
+- Q23-Q26 / Q47: ABSA definition, rule-based rationale, limitations, and
+                  TextBlob's role in aspect-level scoring.
 """
 
 import re
@@ -19,9 +26,13 @@ from textblob import TextBlob
 
 
 # ─── Aspect keyword lexicons ─────────────────────────────────────────────────────
-# Keyword lexicons are intentionally broad to improve recall on varied review wording.
-# Multi-word phrases (for example "waste of money") capture stronger, specific signals.
-# Seven categories cover the most common product review dimensions in e-commerce datasets.
+# Q24/Q25: Rule-based aspect detection is intentional — predefined keywords make
+# the prototype easier to implement, explain, and verify during defense, even
+# though it is less flexible than a learned aspect model.
+#
+# Keyword lexicons are broad to improve recall on varied review wording.
+# Multi-word phrases (e.g. "waste of money") capture stronger, specific signals.
+# Seven categories cover the most common e-commerce review dimensions.
 ASPECT_KEYWORDS = {
     'quality': [
         'quality', 'durable', 'durability', 'sturdy', 'flimsy', 'cheap',
@@ -138,6 +149,8 @@ def get_aspect_sentiment(text, aspect):
     if not isinstance(text, str):
         return {'polarity': 0, 'subjectivity': 0, 'label': 'neutral'}
     
+    # Q47: TextBlob is used here to score sentiment polarity for the matched
+    # aspect context instead of only scoring the review as one whole block.
     patterns = ASPECT_PATTERNS.get(aspect, [])
     
     # Sentence-level filtering isolates aspect context in mixed-sentiment reviews.
@@ -152,6 +165,9 @@ def get_aspect_sentiment(text, aspect):
                 break
     
     if not aspect_sentences:
+        # Q26: A rule-based keyword method can miss implicit references or
+        # synonyms, so fallback sentiment on the full review keeps behavior
+        # stable when no aspect-specific sentence is isolated.
         # If no direct aspect mention is found, use the full review as fallback.
         polarity = blob.sentiment.polarity  # type: ignore[attr-defined]
         subjectivity = blob.sentiment.subjectivity  # type: ignore[attr-defined]

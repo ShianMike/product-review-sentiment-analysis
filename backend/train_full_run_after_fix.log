@@ -1,0 +1,84 @@
+============================================================
+SENTIMENT MODEL TRAINING
+============================================================
+
+------------------------------------------------------------
+STEP 1 � Load Data
+------------------------------------------------------------
+  Source file : C:\Users\shian\Documents\ElectiveEndtermProject\backend\..\Reviews.csv
+  Rows loaded : 568,454  (2.9s)
+  Sampled to  : 150,000 rows
+
+------------------------------------------------------------
+STEP 2 � Preprocess
+------------------------------------------------------------
+  Rows after preprocessing : 149,999  (95.5s)
+
+------------------------------------------------------------
+STEP 3 � Save Processed Training Dataset
+------------------------------------------------------------
+  Saved to    : C:\Users\shian\Documents\ElectiveEndtermProject\backend\exports\processed_training_dataset.csv
+  File size   : 168.1 MB
+  Row count   : 149,999
+  Columns     : ['original_text', 'cleaned_text', 'processed_text', 'rating', 'date', 'product_id', 'summary', 'sentiment_label']
+
+------------------------------------------------------------
+STEP 4 � Load Processed Training Dataset
+------------------------------------------------------------
+  Source file : C:\Users\shian\Documents\ElectiveEndtermProject\backend\exports\processed_training_dataset.csv
+  Rows loaded : 149,999  (2.4s)
+  Columns     : ['original_text', 'cleaned_text', 'processed_text', 'rating', 'date', 'product_id', 'summary', 'sentiment_label']
+
+------------------------------------------------------------
+STEP 5 � Class Balance
+------------------------------------------------------------
+    positive: 123,079 (82.1%)
+    negative:  15,718 (10.5%)
+     neutral:  11,202 (7.5%)
+
+------------------------------------------------------------
+STEP 6 � Train Model
+------------------------------------------------------------
+Splitting data into train/test sets...
+Training set: 119999 reviews
+Test set: 30000 reviews
+Fitting TF-IDF vectorizer...
+Vocabulary size: 50000
+TF-IDF matrix shape: (119999, 50000)
+Training Logistic Regression classifier...
+Evaluating model...
+
+============================================================
+CLASSIFICATION REPORT
+============================================================
+              precision    recall  f1-score   support
+
+    negative       0.75      0.69      0.72      3144
+     neutral       0.52      0.48      0.50      2240
+    positive       0.94      0.96      0.95     24616
+
+    accuracy                           0.90     30000
+   macro avg       0.74      0.71      0.72     30000
+weighted avg       0.89      0.90      0.89     30000
+
+Overall Accuracy: 0.8951
+Macro F1-Score:   0.7230
+
+------------------------------------------------------------
+STEP 7 � Save Model
+------------------------------------------------------------
+Model saved to C:\Users\shian\Documents\ElectiveEndtermProject\backend\models\sentiment_model.joblib
+Vectorizer saved to C:\Users\shian\Documents\ElectiveEndtermProject\backend\models\tfidf_vectorizer.joblib
+  Model artifacts saved to backend/models/
+
+------------------------------------------------------------
+STEP 8 � Evaluation Summary
+------------------------------------------------------------
+  Accuracy  : 0.8951
+  Precision : 0.7356
+  Recall    : 0.7114
+  F1 Score  : 0.7230
+
+============================================================
+TRAINING COMPLETE
+============================================================

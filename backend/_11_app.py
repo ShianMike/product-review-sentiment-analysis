@@ -1,23 +1,34 @@
 """
-Flask API Server
-Provides REST endpoints for the Product Review Analytics Dashboard.
+[Pipeline Step 11 of 11] Flask API Server — Orchestrator
+
+Entry point for the ReviewLens backend. Wires together all preceding pipeline
+steps (2-10) into REST endpoints that the React frontend consumes.
 
 Runtime flow:
-1. Accept CSV/Excel uploads and normalize review columns.
-2. Run sentiment, ABSA, themes, trends, and review-table summarization.
-3. Return either synchronous results or async job progress + final payload.
+1. Accept CSV/Excel uploads and normalize columns   (Step 2  : _2_preprocessing)
+2. Predict overall sentiment                        (Step 3  : _3_sentiment)
+3. Run ABSA aspect detection                        (Step 4  : _4_absa)
+4. Extract per-aspect complaint/praise keywords      (Step 5  : _5_aspect_themes)
+5. Build per-aspect monthly trends                   (Step 6  : _6_aspect_trends)
+6. Extract global themes and keywords                (Step 7  : _7_themes)
+7. Compute monthly sentiment trends                  (Step 8  : _8_trends)
+8. Aggregate product-level summaries                 (Step 9  : _9_product_summary)
+9. Build review-table payload                        (Step 10 : _10_reviews_table)
 
 Frontend fetch relationship:
-1. React uploads a dataset to `/api/analyze/start`.
-2. This backend returns a `job_id` immediately.
-3. React polls `/api/analyze/status/<job_id>` for progress updates.
+1. React uploads a dataset to POST /api/analyze/start.
+2. Backend returns a job_id immediately.
+3. React polls GET /api/analyze/status/<job_id> for progress updates.
 4. Once the job finishes, the status payload includes `result`.
-5. That `result` object is passed directly into dashboard components to render
-   charts, cards, trends, exports, and optional table views.
+5. That result object is passed directly into dashboard components for rendering.
 
 Demo mapping:
-- Slide 6: System Architecture and Runtime Workflow
-- Slide 9: Working Prototype and User Flow
+- Slide 6 : System Architecture and Runtime Workflow
+- Slide 9 : Working Prototype and User Flow
+- Q1/Q4   : System purpose — converting review files into structured insights.
+- Q2      : Intended users — sellers, product managers, support teams.
+- Q3      : Product reviews as a topic — structured ratings + unstructured text.
+- Q30/Q35/Q46: Backend half of the working prototype; REST API for the React UI.
 """
 
 # ─── Standard library ───────────────────────────────────────────────────────
@@ -35,22 +46,25 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
 
-# ─── Internal pipeline modules ───────────────────────────────────────────────
+# ─── Internal pipeline modules (Steps 2–10) ────────────────────────────────────
 # Add the backend directory so relative imports work whether the server is
 # launched from the project root or from inside the backend/ folder.
 sys.path.insert(0, os.path.dirname(__file__))
 
-from preprocessing import preprocess_uploaded_file, preprocess_text, clean_text
-from sentiment import SentimentClassifier, get_classifier
-from absa import analyze_aspects_batch, ASPECT_KEYWORDS
-from themes import generate_theme_summary
-from trends import build_monthly_trends
-from reviews_table import build_reviews_table
-from product_summary import build_product_summary, build_product_trends
-from aspect_themes import build_aspect_theme_summary
-from aspect_trends import build_aspect_trends
+from _2_preprocessing import preprocess_uploaded_file, preprocess_text, clean_text
+from _3_sentiment import SentimentClassifier, get_classifier
+from _4_absa import analyze_aspects_batch, ASPECT_KEYWORDS
+from _7_themes import generate_theme_summary
+from _8_trends import build_monthly_trends
+from _10_reviews_table import build_reviews_table
+from _9_product_summary import build_product_summary, build_product_trends
+from _5_aspect_themes import build_aspect_theme_summary
+from _6_aspect_trends import build_aspect_trends
 
 # ─── App initialization ──────────────────────────────────────────────────────
+# Q43/Q44: Flask is used as the backend framework because it is lightweight and
+# practical for exposing prototype API endpoints for upload, analysis, export,
+# prediction, and model information.
 # static_folder=None because the React build is served by its own dev server
 # (or a separate nginx/CDN layer in production).
 app = Flask(__name__, static_folder=None)
@@ -62,6 +76,8 @@ logger = logging.getLogger('reviewlens.api')
 # ─── File upload configuration ───────────────────────────────────────────────
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 EXPORT_FOLDER = os.path.join(os.path.dirname(__file__), 'exports')
+# Q34: Upload support intentionally includes CSV, XLSX, and XLS so users can
+# analyze common business spreadsheet formats without reshaping files first.
 ALLOWED_EXTENSIONS = {'.csv', '.xlsx', '.xls'}   # Only tabular formats are accepted
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
@@ -168,6 +184,8 @@ def ensure_latest_classifier():
 #
 # A simple dict + Lock is sufficient for single-process classroom deployments
 # and avoids Redis/Celery complexity.
+# Q39/Q41: This also highlights a current limitation: the prototype is
+# file-based and in-memory rather than backed by a persistent database.
 ANALYSIS_JOBS = {}
 ANALYSIS_JOBS_LOCK = Lock()
 
@@ -256,11 +274,22 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     frontend dashboard consumes. In the sync flow it is returned immediately as
     JSON. In the async flow it is stored under `job.result` and later returned
     by `/api/analyze/status/<job_id>` once the job completes.
+
+        - Q30: The working prototype already supports upload/analyze, sentiment,
+            aspects, themes, trends, model info, prediction, and export.
+        - Q32: Trend outputs depend on the uploaded dataset containing a usable
+            date column; the rest of the analysis can still run without trends.
+        - Q33: The row cap keeps the classroom prototype responsive without
+            heavier infrastructure.
+        - Q42: This is still a prototype architecture, not a fully hardened
+            business deployment stack.
     """
     if len(df) == 0:
         raise ValueError('Uploaded file is empty')
 
     # Keep processing time predictable for classroom-scale demos.
+    # Q33: About 50k rows is a practical cap for demo responsiveness. It keeps
+    # processing time and browser wait time reasonable on local machines.
     max_rows = 50000
     if len(df) > max_rows:
         df = df.sample(n=max_rows, random_state=42)
@@ -348,8 +377,8 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         rating_dist = {str(k): int(v) for k, v in rating_dist.items()}
 
     # Feed the product comparison cards/table plus the per-product trend chart.
-    product_summary = build_product_summary(processed_df, sentiment_col, limit=12)
-    product_trends = build_product_trends(processed_df, sentiment_col, limit=8)
+    product_summary = build_product_summary(processed_df, sentiment_col)
+    product_trends = build_product_trends(processed_df, sentiment_col)
 
     # Feed the reviews table payload. This is still bounded because the table view
     # is heavier than the summary charts and is not presentation-ready yet.
@@ -358,9 +387,9 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     _emit_progress(progress_callback, 95, 'Export', 'Saving processed export files...')
     export_filename = f"processed_{filename.rsplit('.', 1)[0]}.csv"
     export_path = os.path.join(EXPORT_FOLDER, export_filename)
-    export_df = processed_df.drop(columns=['aspects'], errors='ignore')
-    # Drop raw JSON-as-string aspects from CSV export to keep file human-readable.
-    export_df.to_csv(export_path, index=False)
+    # Keep all columns including aspects so the product drill-down endpoint
+    # can re-aggregate per-product data without re-running ABSA.
+    processed_df.to_csv(export_path, index=False)
 
     # Response keys are named to match frontend visualization sections directly.
     # This keeps the fetch/render contract simple:
@@ -892,6 +921,128 @@ def export_aspects_csv():
         return jsonify({'error': str(exc)}), 500
 
 
+# ─── API routes: per-product drill-down ──────────────────────────────────────
+
+@app.route('/api/product-analysis', methods=['GET'])
+def product_analysis():
+    """
+    Return aspect and theme data filtered to a single product.
+
+    Query params:
+      - file      : name of the exported CSV in backend/exports/
+      - product_id: product identifier to filter on
+
+    The endpoint loads the persisted processed CSV (which includes per-review
+    aspect JSON), filters to the requested product, and re-aggregates aspect
+    summaries, aspect themes, aspect trends, and theme summaries from scratch.
+    This avoids storing per-product breakdowns in the initial analysis payload
+    and keeps the main response lean.
+    """
+    export_file = request.args.get('file', '').strip()
+    product_id = request.args.get('product_id', '').strip()
+
+    if not export_file or not product_id:
+        return jsonify({'error': 'Both file and product_id parameters are required.'}), 400
+
+    # Sanitize filename to prevent directory traversal.
+    safe_name = os.path.basename(export_file)
+    export_path = os.path.join(EXPORT_FOLDER, safe_name)
+
+    if not os.path.isfile(export_path):
+        return jsonify({'error': f'Export file not found: {safe_name}'}), 404
+
+    try:
+        df = pd.read_csv(export_path)
+
+        if 'product_id' not in df.columns:
+            return jsonify({'error': 'Dataset has no product_id column.'}), 400
+
+        df['product_id'] = df['product_id'].astype(str).str.strip()
+        filtered = df[df['product_id'] == product_id]
+
+        if filtered.empty:
+            return jsonify({'error': f'No reviews found for product: {product_id}'}), 404
+
+        # Re-parse per-review aspect JSON stored during the original analysis.
+        aspect_results = []
+        if 'aspects' in filtered.columns:
+            for raw in filtered['aspects']:
+                try:
+                    aspect_results.append(json.loads(raw) if isinstance(raw, str) else {})
+                except (json.JSONDecodeError, TypeError):
+                    aspect_results.append({})
+        else:
+            # Aspects column missing — fall back to re-running ABSA on the subset.
+            original_texts = filtered['original_text'].tolist()
+            aspect_results, _ = analyze_aspects_batch(original_texts)
+
+        # Re-aggregate aspect summary from per-review aspect dicts.
+        from collections import defaultdict
+        aspect_agg = defaultdict(lambda: {
+            'count': 0, 'positive': 0, 'neutral': 0, 'negative': 0, 'total_polarity': 0
+        })
+        for review_aspects in aspect_results:
+            for aspect, sentiment in review_aspects.items():
+                agg = aspect_agg[aspect]
+                agg['count'] += 1
+                label = sentiment.get('label', 'neutral')
+                if label in ('positive', 'neutral', 'negative'):
+                    agg[label] += 1
+                agg['total_polarity'] += sentiment.get('polarity', 0)
+
+        aspect_summary = {}
+        for aspect, d in aspect_agg.items():
+            c = d['count']
+            aspect_summary[aspect] = {
+                'total_mentions': c,
+                'positive_count': d['positive'],
+                'neutral_count': d['neutral'],
+                'negative_count': d['negative'],
+                'positive_pct': round(d['positive'] / c * 100, 1) if c else 0,
+                'neutral_pct': round(d['neutral'] / c * 100, 1) if c else 0,
+                'negative_pct': round(d['negative'] / c * 100, 1) if c else 0,
+                'avg_polarity': round(d['total_polarity'] / c, 4) if c else 0,
+            }
+        aspect_summary = dict(sorted(
+            aspect_summary.items(), key=lambda x: x[1]['total_mentions'], reverse=True
+        ))
+
+        # Build aspect-level praise/complaint phrases for the filtered subset.
+        processed_texts = filtered['processed_text'].tolist() if 'processed_text' in filtered.columns else []
+        aspect_theme_summary = build_aspect_theme_summary(
+            processed_texts=processed_texts,
+            aspect_results=aspect_results,
+            top_n=8,
+        ) if processed_texts else {}
+
+        # Build aspect trends for the filtered subset.
+        aspect_trends = build_aspect_trends(filtered.reset_index(drop=True), aspect_results, limit=8)
+
+        # Build theme summary for the filtered subset.
+        original_texts = filtered['original_text'].tolist() if 'original_text' in filtered.columns else []
+        sentiment_col = 'sentiment_label' if 'sentiment_label' in filtered.columns else 'predicted_sentiment'
+        sentiment_labels = filtered[sentiment_col].tolist() if sentiment_col in filtered.columns else []
+        theme_summary = generate_theme_summary(
+            texts=original_texts,
+            sentiment_labels=sentiment_labels,
+            processed_texts=processed_texts,
+        ) if original_texts and sentiment_labels else None
+
+        return jsonify({
+            'status': 'success',
+            'product_id': product_id,
+            'total_reviews': len(filtered),
+            'aspect_summary': aspect_summary,
+            'aspect_theme_summary': aspect_theme_summary,
+            'aspect_trends': aspect_trends,
+            'theme_summary': theme_summary,
+        })
+
+    except Exception as exc:
+        logger.exception('Product analysis failed for %s', product_id)
+        return jsonify({'error': str(exc)}), 500
+
+
 # ─── API routes: single prediction ──────────────────────────────────────────
 
 @app.route('/api/predict', methods=['POST'])
@@ -924,7 +1075,7 @@ def predict_single():
     label, confidence, prob_dict = classifier.predict_single(processed, raw_text=text)
     
     # ABSA
-    from absa import analyze_aspects
+    from _4_absa import analyze_aspects
     aspects = analyze_aspects(text)
     
     return jsonify({

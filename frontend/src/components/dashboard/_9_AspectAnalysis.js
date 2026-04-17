@@ -1,4 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+// _9_AspectAnalysis.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Renders the "Aspects" tab of the dashboard.
+//
+// Aspect-Based Sentiment Analysis (ABSA) groups review text by product topic
+// (price, quality, delivery, etc.) and scores each topic independently.
+//
+// Data flow:
+//   1. Default data comes from the global analysis payload in props.
+//   2. When the user picks a specific product, handleProductChange fetches
+//      product-scoped aspect/theme/trend data from the backend.
+//   3. Derived state (barData, radarData, filteredSelectedAspectTrend) is
+//      memoized and recomputed only when its direct inputs change.
+//   4. Clicking an aspect row in the list opens a detail panel showing that
+//      aspect's polarity, phrase themes, and time-series trend.
+// ─────────────────────────────────────────────────────────────────────────────
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -6,14 +22,19 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import { Tag, ArrowUpRight, ArrowDownRight, Target, Download, Database, TrendingUp, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGuide';
-import { exportAspectsCsv, exportAspectsJson, getExportUrl } from '../../api';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { exportAspectsCsv, exportAspectsJson, getExportUrl, getProductAnalysis } from '../../_1_api';
 
 const COLORS = {
   positive: '#22c55e',
   neutral: '#eab308',
   negative: '#ef4444',
 };
+
+function truncateId(text, max = 50) {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + '…';
+}
 
 const tooltipStyle = {
   background: 'var(--bg-card)',
@@ -35,7 +56,44 @@ const tooltipStyle = {
  * render the data, but it does not recompute aspect analytics itself.
  */
 function AspectAnalysis({ data }) {
-  const { aspect_summary, aspect_theme_summary, aspect_trends } = data;
+  const [selectedProduct, setSelectedProduct] = useState('all');
+  const [productData, setProductData] = useState(null);
+  const [productLoading, setProductLoading] = useState(false);
+
+  // Product list comes from the product summary computed during the main analysis.
+  const allProducts = data.product_summary?.top_products || [];
+  const hasProducts = allProducts.length > 1 && Boolean(data.export_file);
+
+  // When a product is selected, fetch its aspect/theme data from the backend.
+  // selectedAspect is also reset so the detail panel doesn't show stale data
+  // from the previous product or the global dataset.
+  const handleProductChange = useCallback(async (productId) => {
+    setSelectedProduct(productId);
+    setSelectedAspect(null);
+
+    if (productId === 'all') {
+      setProductData(null);
+      return;
+    }
+
+    try {
+      setProductLoading(true);
+      const response = await getProductAnalysis(data.export_file, productId);
+      setProductData(response.data);
+    } catch {
+      setProductData(null);
+    } finally {
+      setProductLoading(false);
+    }
+  }, [data.export_file]);
+
+  // Use product-filtered data when a product is selected, otherwise use global data.
+  // The fallback to `data.*` means the component always has something to render
+  // even while productData is still loading.
+  const aspect_summary = (selectedProduct !== 'all' && productData?.aspect_summary) || data.aspect_summary;
+  const aspect_theme_summary = (selectedProduct !== 'all' && productData?.aspect_theme_summary) || data.aspect_theme_summary;
+  const aspect_trends = (selectedProduct !== 'all' && productData?.aspect_trends) || data.aspect_trends;
+
   const [selectedAspect, setSelectedAspect] = useState(null);
   const [activeGuideKey, setActiveGuideKey] = useState(null);
   const [exportError, setExportError] = useState(null);
@@ -71,6 +129,7 @@ function AspectAnalysis({ data }) {
 
   // Radar chart expects one numeric score per axis. We remap polarity from
   // [-1, 1] into [0, 100] so the chart reads as negative -> neutral -> positive.
+  // Formula: (polarity + 1) * 50 maps -1 -> 0, 0 -> 50, +1 -> 100.
   const radarData = aspectEntries.map(([aspect, stats]) => ({
     aspect: toTitleCase(aspect),
     polarity: Math.round((stats.avg_polarity + 1) * 50),
@@ -89,6 +148,9 @@ function AspectAnalysis({ data }) {
     return Array.isArray(trendPoints) ? trendPoints : [];
   }, [selectedAspect, aspect_trends]);
 
+  // Normalize month strings to YYYY-MM format (some backend responses include
+  // a day component like 2024-03-01; slicing to 7 chars keeps them uniform)
+  // and sort chronologically so Recharts renders a left-to-right time axis.
   const normalizedSelectedAspectTrend = useMemo(
     () => selectedAspectTrend
       .map((point) => {
@@ -140,6 +202,8 @@ function AspectAnalysis({ data }) {
   const handleAspectTrendStartMonthChange = (event) => {
     const nextStart = event.target.value;
     setAspectTrendStartMonth(nextStart);
+    // Guard: if the user pushes the start month past the current end month,
+    // snap the end month forward to match so the range stays valid.
     if (selectedAspectTrendEndMonth && nextStart > selectedAspectTrendEndMonth) {
       setAspectTrendEndMonth(nextStart);
     }
@@ -148,6 +212,8 @@ function AspectAnalysis({ data }) {
   const handleAspectTrendEndMonthChange = (event) => {
     const nextEnd = event.target.value;
     setAspectTrendEndMonth(nextEnd);
+    // Guard: if the user pulls the end month before the current start month,
+    // snap the start month back to match.
     if (selectedAspectTrendStartMonth && nextEnd < selectedAspectTrendStartMonth) {
       setAspectTrendStartMonth(nextEnd);
     }
@@ -171,6 +237,9 @@ function AspectAnalysis({ data }) {
     [selectedAspect, activeDetail, selectedAspectThemes, selectedAspectTrend],
   );
 
+  // Build the export payload once and reuse it for both CSV and JSON.
+  // This keeps the export handlers simple and ensures both formats contain
+  // the same data snapshot.
   const createAspectExportPayload = () => ({
     filename: data.filename,
     total_reviews: data.total_reviews,
@@ -530,6 +599,37 @@ function AspectAnalysis({ data }) {
 
       {exportError && <div className="alert alert-error">{exportError}</div>}
 
+      {hasProducts && (
+        <div className="card">
+          <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div className="section-label" style={{ marginBottom: 0 }}>Product Filter</div>
+            <div className="trend-select-wrap" style={{ minWidth: 220 }}>
+              <select
+                className="input trend-select"
+                value={selectedProduct}
+                onChange={(e) => handleProductChange(e.target.value)}
+                disabled={productLoading}
+                aria-label="Filter aspects by product"
+              >
+                <option value="all">All products ({allProducts.length})</option>
+                {allProducts.map((p) => (
+                  <option key={p.product_id} value={p.product_id}>{truncateId(p.product_id, 60)}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </div>
+            {productLoading && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loading product data...</span>
+            )}
+            {selectedProduct !== 'all' && !productLoading && productData && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {productData.total_reviews?.toLocaleString()} reviews for this product
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="aspect-analysis-layout">
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignSelf: 'start' }}>
           <CardHeaderWithGuide
@@ -550,11 +650,13 @@ function AspectAnalysis({ data }) {
               const polarityColor = stats.avg_polarity >= 0 ? 'var(--green)' : 'var(--red)';
               const isSelected = selectedAspect === aspect;
 
-              return (
-                <button
-                  type="button"
-                  key={aspect}
-                  onClick={() => setSelectedAspect(isSelected ? null : aspect)}
+  // Clicking an aspect row toggles the detail panel: selecting a different
+  // aspect shows its data, clicking the already-selected aspect deselects it.
+  return (
+    <button
+      type="button"
+      key={aspect}
+      onClick={() => setSelectedAspect(isSelected ? null : aspect)}
                   aria-pressed={isSelected}
                   aria-label={`Toggle details for ${aspect}`}
                   style={{

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Download, FileText, Database, Construction } from 'lucide-react';
-import SentimentOverview from './dashboard/SentimentOverview';
-import AspectAnalysis from './dashboard/AspectAnalysis';
-import ThemeSummary from './dashboard/ThemeSummary';
-import TrendChart from './dashboard/TrendChart';
-import ReviewsTable from './dashboard/ReviewsTable';
-import { GuideButton, InfoGuideModal } from './dashboard/DashboardGuide';
-import { getExportUrl, exportJson } from '../api';
+import SentimentOverview from './dashboard/_8_SentimentOverview';
+import AspectAnalysis from './dashboard/_9_AspectAnalysis';
+import ThemeSummary from './dashboard/_10_ThemeSummary';
+import TrendChart from './dashboard/_11_TrendChart';
+import ReviewsTable from './dashboard/_12_ReviewsTable';
+import { GuideButton, InfoGuideModal } from './dashboard/_7_DashboardGuide';
+import { getExportUrl, exportJson } from '../_1_api';
 
 /**
  * Dashboard is the main analysis workspace shown after a dataset is processed.
@@ -34,6 +34,14 @@ import { getExportUrl, exportJson } from '../api';
  * - theme_summary -> keyword cards, phrases, word cloud
  * - trends / product_trends -> time-based charts
  * - reviews -> table payload (currently WIP/hidden in navigation)
+
+ * - Q1/Q30: This is the end-to-end view that turns uploaded reviews into
+ *   structured insights for sentiment, aspects, themes, trends, and export.
+ * - Q31: The reviews table is still marked WIP in the current prototype.
+ * - Q32/Q35: Trends depend on date data, but export actions are available from
+ *   the dashboard whenever analysis results exist.
+ * - Q45: React is used here because it is well-suited to interactive,
+ *   multi-view dashboard interfaces.
  *
  * @param {{
  *  data: {
@@ -55,25 +63,12 @@ import { getExportUrl, exportJson } from '../api';
  *  }
  * }} props
  */
-function Dashboard({ data }) {
-  // The currently visible dashboard panel.
-  const [activeSection, setActiveSection] = useState('overview');
-
+function Dashboard({ data, activeSection, setActiveSection }) {
   // Which explanatory guide is open in the modal (null means closed).
   const [activeGuideKey, setActiveGuideKey] = useState(null);
 
   // User-facing error message for export actions.
   const [exportError, setExportError] = useState(null);
-
-  // Tab configuration for section navigation.
-  // Tabs switch between different views of the same fetched payload.
-  const sections = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'aspects', label: 'Aspects' },
-    { id: 'themes', label: 'Themes' },
-    { id: 'trends', label: 'Trends' },
-    { id: 'reviews', label: 'Reviews (WIP)', disabled: true },
-  ];
 
   /**
    * Opens backend-generated CSV output in a new tab.
@@ -220,23 +215,6 @@ function Dashboard({ data }) {
             />
           </div>
         </div>
-      </div>
-
-      {/*
-        Section tabs: lightweight view-switching within the same data context.
-        "Reviews" remains intentionally disabled until the implementation is complete.
-      */}
-      <div style={{ display: 'flex', gap: 4 }}>
-        {sections.map((section) => (
-          <button
-            key={section.id}
-            onClick={() => !section.disabled && setActiveSection(section.id)}
-            disabled={section.disabled}
-            className={`btn btn-secondary ${activeSection === section.id ? 'active' : ''}`}
-          >
-            {section.label}
-          </button>
-        ))}
       </div>
 
       {/* Export feedback appears above the selected section for immediate visibility. */}

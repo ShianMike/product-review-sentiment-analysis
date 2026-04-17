@@ -1,3 +1,15 @@
+// _7_DashboardGuide.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared UI components that power the "?" info modals shown throughout the
+// dashboard. Nothing in this file communicates with the backend; it only
+// handles the display side of the explanation layer.
+//
+// Exports three components:
+//   GuideButton       – the small circular "?" trigger button
+//   CardHeaderWithGuide – card header row that bundles a title + GuideButton
+//   InfoGuideModal    – the modal overlay that renders the active guide's
+//                       title, description, and item cards
+// ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect } from 'react';
 import { CircleHelp, X } from 'lucide-react';
 
@@ -11,6 +23,13 @@ export function GuideButton({
   // All dashboard help/info buttons use this one trigger component so the
   // button behavior stays consistent across overview, themes, trends, aspects,
   // and model-info screens.
+  // Q2/Q29/Q30: These guide buttons support non-technical users such as
+  // sellers or product teams by explaining the analytics in plain language.
+  //
+  // aria-haspopup="dialog" tells screen readers that clicking this button
+  // will open a dialog rather than navigating to a new page.
+  // aria-expanded reflects whether that dialog is currently open.
+  // aria-controls links the button to the modal's DOM id.
   return (
     <button
       type="button"
@@ -27,6 +46,10 @@ export function GuideButton({
   );
 }
 
+// CardHeaderWithGuide renders a standard card header row.
+// It combines a title (with optional icon) on the left and an actions area
+// on the right. When a guideKey is provided, a GuideButton is automatically
+// appended to the actions slot so callers do not have to wire it manually.
 export function CardHeaderWithGuide({
   title,
   icon = null,
@@ -58,11 +81,18 @@ export function CardHeaderWithGuide({
   );
 }
 
+// InfoGuideModal is a full-screen overlay modal.
+// The parent component owns the `activeGuide` value. When it is null, the
+// modal is unmounted entirely (returns null) so no invisible DOM lingers.
+// When it is set to a guide object, the modal renders that guide's data.
 export function InfoGuideModal({
   activeGuide,
   onClose,
   dialogId = 'dashboard-info-guide',
 }) {
+  // Q30/Q42: The modal is part of the prototype's explanation layer. It does
+  // not compute analytics itself; it helps users interpret already-computed
+  // results coming from the backend pipeline.
   useEffect(() => {
     if (!activeGuide) return undefined;
 
@@ -72,6 +102,7 @@ export function InfoGuideModal({
       }
     };
 
+    // Prevent the page behind the modal from scrolling while the overlay is open.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', handleKeyDown);
@@ -87,6 +118,8 @@ export function InfoGuideModal({
   }
 
   return (
+    // Clicking the semi-transparent backdrop (outside the card) closes the modal.
+    // stopPropagation on the inner card prevents that click from bubbling up.
     <div className="modal-backdrop" onClick={onClose}>
       <div
         id={dialogId}

@@ -1,8 +1,14 @@
 """
-Helpers for constructing review table rows for dashboard responses.
+[Pipeline Step 10 of 11] Reviews Table Builder
 
-This module converts the processed dataframe into a compact, UI-ready
-list of review dictionaries with stable keys and optional metadata.
+Constructs a compact, UI-ready list of review dictionaries from the processed
+DataFrame. Each row contains the original text (trimmed), predicted sentiment,
+confidence, detected aspects, and optional metadata (rating, date, product ID,
+summary).
+
+The payload is capped to `limit` rows to keep API responses and table rendering
+fast. The corresponding frontend tab is currently WIP and disabled in the
+navigation.
 """
 
 import json

@@ -181,11 +181,15 @@ XIV. REFERENCES
 
 Davoodi, L., Mezei, J., & Heikkilä, M. (2025). Aspect-based sentiment classification of user reviews to understand customer satisfaction of e-commerce platforms. Electronic Commerce Research. https://doi.org/10.1007/s10660-025-09948-4\
 
+Chen, Z. (2024). Sentiment analysis with different deep learning methods. In Proceedings of the 1st International Conference on Data Science and Engineering (ICDSE 2024), 154-159. https://doi.org/10.5220/0012832800004547
+
 Daza, A., González Rueda, N. D., Aguilar Sánchez, M. S., Robles Espíritu, W. F., & Chauca Quiñones, M. E. (2024). Sentiment analysis on e-commerce product reviews using machine learning and deep learning algorithms: A bibliometric analysis, systematic literature review, challenges and future works. International Journal of Information Management Data Insights, 4(2), 100267. https://doi.org/10.1016/j.jjimei.2024.100267
 
 Ghatora, P. S., Hosseini, S. E., Pervez, S., Iqbal, M. J., & Shaukat, N. (2024). Sentiment analysis of product reviews using machine learning and pre-trained LLM. Big Data and Cognitive Computing, 8(12), 199. https://doi.org/10.3390/bdcc8120199
 
 Hadero, H. (2023, August 11). Amazon is rolling out a generative AI feature that summarizes product reviews. AP News. https://apnews.com/article/amazon-generative-ai-reviews-products-4db85ac68c0d46f7b728b9da48da1a96
+
+Li, W., Chen, Y., Zheng, S., Wang, L., & Lalor, J. P. (2024). Stars are all you need: A distantly supervised pyramid network for unified sentiment analysis. In Proceedings of the Ninth Workshop on Noisy and User-generated Text (W-NUT 2024), 104-118. Association for Computational Linguistics. https://aclanthology.org/2024.wnut-1.10.pdf
 
 Mao, Y., Liu, Q., & Zhang, Y. (2024). Sentiment analysis methods, applications, and challenges: A systematic literature review. Journal of King Saud University – Computer and Information Sciences, 36(4), 102048. https://doi.org/10.1016/j.jksuci.2024.102048
 

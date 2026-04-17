@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { startAnalyzeJob, getAnalyzeJobStatus } from '../api';
+import { startAnalyzeJob, getAnalyzeJobStatus } from '../_1_api';
 
 /**
  * FileUpload owns the async fetch workflow that eventually powers the dashboard.

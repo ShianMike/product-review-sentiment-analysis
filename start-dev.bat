@@ -14,9 +14,9 @@ echo   ReviewLens - Starting Dev Environment
 echo ============================================
 echo.
 
-:: Start Flask backend on port 5000
-echo [1/2] Starting Flask backend (localhost:5000)...
-start "ReviewLens Backend" cmd /k "cd /d %ROOT%backend && ""%ROOT%.venv\Scripts\python.exe"" app.py"
+:: Start Flask backend on port 5000 with auto-reload on file changes
+echo [1/2] Starting Flask backend (localhost:5000) [auto-reload ON]...
+start "ReviewLens Backend" cmd /k "cd /d %ROOT%backend && set FLASK_DEBUG=1 && ""%ROOT%.venv\Scripts\python.exe"" _11_app.py"
 
 :: Wait for backend to be ready
 timeout /t 3 /nobreak >nul

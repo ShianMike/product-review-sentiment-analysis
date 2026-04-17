@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Info, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { getModelInfo, healthCheck } from '../api';
-import { GuideButton, InfoGuideModal } from './dashboard/DashboardGuide';
+import { getModelInfo, healthCheck } from '../_1_api';
+import { GuideButton, InfoGuideModal } from './dashboard/_7_DashboardGuide';
 
 // Demo guide: this component supports the model-performance part of the presentation.
 function ModelInfo() {

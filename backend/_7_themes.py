@@ -1,16 +1,23 @@
 """
-Theme & Keyword Extraction Module
-Extracts common themes, frequent complaints, and praises from reviews.
-Uses TF-IDF and frequency-based keyword extraction.
+[Pipeline Step 7 of 11] Theme & Keyword Extraction
 
-Pipeline summary:
-1. Compute global keywords and frequent n-gram phrases.
-2. Repeat extraction by sentiment slice (positive/neutral/negative).
-3. Produce complaint/praise buckets plus word-cloud frequency payload.
+Extracts global keywords, frequent n-gram phrases, complaint / praise
+buckets, and word-cloud frequency data from the corpus. Uses TF-IDF for
+keyword importance ranking and CountVectorizer for raw phrase frequency.
+
+Workflow:
+1. Compute corpus-wide top keywords and phrases.
+2. Repeat extraction by sentiment slice (positive / neutral / negative).
+3. Produce separate complaint and praise keyword lists.
+4. Build word-cloud frequency payload for the frontend.
+
+Also exports `extract_keywords_tfidf` and `extract_frequent_phrases` which
+Step 5 (_5_aspect_themes) reuses for per-aspect theme breakdowns.
 
 Demo mapping:
-- Slide 7: Methods and Techniques Used
-- Slide 10: Latest Demo Results for praises, complaints, and keywords
+- Slide 7  : Methods and Techniques Used
+- Slide 10 : Latest Demo Results — praises, complaints, and keywords
+- Q27-Q29  : Theme extraction vs aspect analysis, decision-making value.
 """
 
 from collections import Counter
@@ -29,6 +36,10 @@ STOP_WORDS = set(stopwords.words('english')) | {'nan', 'none', 'null'}
 def extract_keywords_tfidf(texts, top_n=20):
     """
         Extract top keywords from a corpus using TF-IDF scoring.
+
+        Q27/Q28: Theme extraction is broader than aspect analysis. Aspects use
+        predefined categories such as price or quality, while this function
+        surfaces important words and phrases across the corpus more freely.
 
         Why TF-IDF is used here:
         - TF (term frequency) highlights words that appear often in review text.
@@ -159,6 +170,8 @@ def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
     
     Returns dict with 'complaints' and 'praises' keys.
     """
+    # Q29: Separating praise and complaint themes helps users identify repeated
+    # strengths and pain points quickly without manually reading every review.
     # Split sentiment buckets so complaints/praises can be shown independently in UI.
     complaints_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
     praises_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']

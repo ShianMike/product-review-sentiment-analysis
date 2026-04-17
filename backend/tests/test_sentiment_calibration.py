@@ -1,6 +1,6 @@
 import unittest
 
-from backend.sentiment import calibrate_single_prediction
+from backend._3_sentiment import calibrate_single_prediction
 
 
 class SentimentCalibrationTests(unittest.TestCase):
@@ -39,6 +39,30 @@ class SentimentCalibrationTests(unittest.TestCase):
         )
 
         self.assertEqual(max(adjusted, key=adjusted.get), 'neutral')
+
+    def test_mixed_text_can_override_overconfident_positive_model_output(self):
+        adjusted = calibrate_single_prediction(
+            "It's okay, nothing special. The price is reasonable but the taste could be better.",
+            {
+                'negative': 0.001135794968682787,
+                'neutral': 0.0025736998434741066,
+                'positive': 0.9962905051878431,
+            },
+        )
+
+        self.assertEqual(max(adjusted, key=adjusted.get), 'neutral')
+
+    def test_strong_positive_text_keeps_high_confidence_positive_prediction(self):
+        adjusted = calibrate_single_prediction(
+            'This product is amazing! Great quality and fast delivery. Worth every penny.',
+            {
+                'negative': 0.01,
+                'neutral': 0.02,
+                'positive': 0.97,
+            },
+        )
+
+        self.assertEqual(max(adjusted, key=adjusted.get), 'positive')
 
 
 if __name__ == '__main__':

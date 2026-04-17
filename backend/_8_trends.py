@@ -1,8 +1,11 @@
 """
-Helpers for computing trend analytics payloads.
+[Pipeline Step 8 of 11] Monthly Sentiment Trends
 
-This module converts date-aware review rows into month-level sentiment
-time-series data used by the dashboard trend charts.
+Converts date-aware review rows into month-level sentiment time-series data.
+Each month entry contains raw counts and percentages for positive, neutral,
+and negative reviews, ready for the dashboard trend charts.
+
+Returns None when a date column is missing or unparseable.
 """
 
 

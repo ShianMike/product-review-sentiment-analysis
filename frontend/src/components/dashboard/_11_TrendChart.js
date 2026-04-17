@@ -1,10 +1,22 @@
+// _11_TrendChart.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Renders the "Trends" tab of the dashboard.
+// All time-series data was computed by the backend during the analysis run.
+// This component's job is purely visual: reshape the rows for Recharts,
+// derive a few helper metrics, and let the user filter by product or date.
+//
+// Key derived fields added to each row:
+//   neutralRate      – (neutral / total) * 100 (not returned by backend directly)
+//   netSentiment     – positive_pct - negative_pct (a simple health score)
+//   sentimentMomentum – netSentiment vs the previous month (shows direction)
+// ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell
 } from 'recharts';
 import { TrendingUp, TrendingDown, BarChart3, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
 
 const tooltipStyle = {
   background: 'var(--bg-card)',
@@ -16,6 +28,14 @@ const tooltipStyle = {
 
 const EMPTY_TRENDS = [];
 
+function truncateId(text, max = 50) {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + '…';
+}
+
+// formatMonthLabel converts a YYYY-MM string into a short locale-aware label
+// (e.g. "Mar 2024") for X axis ticks. Invalid inputs are passed through as-is
+// to avoid rendering blank axis labels if the data shape is unexpected.
 function formatMonthLabel(monthValue) {
   const [yearRaw, monthRaw] = String(monthValue).split('-');
   const year = Number(yearRaw);
@@ -60,6 +80,8 @@ function TrendChart({ data }) {
 
   const hasTrendData = activeRawTrends.length > 0;
 
+  // If the currently selected product was removed from the available list
+  // (e.g. after a new upload), reset to 'all' to avoid a broken filter state.
   useEffect(() => {
     if (selectedProductId === 'all') {
       return;
@@ -75,6 +97,8 @@ function TrendChart({ data }) {
         const month = t.month.length > 7 ? t.month.substring(0, 7) : t.month;
         // Backend gives counts and positive/negative percentages. The frontend
         // derives neutral percentage and net sentiment for additional charts.
+        // neutralRate: how many reviews in this month were neutral (as %)
+        // netSentiment: positive_pct minus negative_pct; positive = healthy
         const neutralRate = Math.round((t.neutral / t.total) * 100 * 10) / 10;
         const netSentiment = Math.round((t.positive_pct - t.negative_pct) * 10) / 10;
 
@@ -117,6 +141,8 @@ function TrendChart({ data }) {
     return isAfterStart && isBeforeEnd;
   });
 
+  // sentimentMomentum is the change in net sentiment compared to the prior
+  // month. The first point gets 0 because there is no baseline to compare with.
   const filteredTrendData = filteredBaseData.map((entry, index) => {
     const previousNet = index > 0 ? filteredBaseData[index - 1].netSentiment : null;
     return {
@@ -128,6 +154,7 @@ function TrendChart({ data }) {
   const handleStartMonthChange = (event) => {
     const nextStart = event.target.value;
     setStartMonth(nextStart);
+    // Guard: prevent the start month from going past the end month.
     if (selectedEndMonth && nextStart > selectedEndMonth) {
       setEndMonth(nextStart);
     }
@@ -136,6 +163,7 @@ function TrendChart({ data }) {
   const handleEndMonthChange = (event) => {
     const nextEnd = event.target.value;
     setEndMonth(nextEnd);
+    // Guard: prevent the end month from going before the start month.
     if (selectedStartMonth && nextEnd < selectedStartMonth) {
       setStartMonth(nextEnd);
     }
@@ -146,6 +174,8 @@ function TrendChart({ data }) {
     setEndMonth(defaultEndMonth);
   };
 
+  // Limit X-axis tick density: show a tick every ~12th data point when the
+  // series is long so labels don't overlap at narrow container widths.
   const axisStyle = { fontSize: 10, fill: 'var(--text-muted)' };
   const labelInterval = Math.max(0, Math.floor(filteredTrendData.length / 12));
 
@@ -173,6 +203,9 @@ function TrendChart({ data }) {
     );
   }
 
+  // Pre-compute the summary stats used by the top stat cards and the guide modal.
+  // These run only when filteredTrendData changes (memoized implicitly by const
+  // declarations inside render; useMemo would be needed for large arrays).
   const latest = filteredTrendData[filteredTrendData.length - 1];
   const previous = filteredTrendData.length > 1 ? filteredTrendData[filteredTrendData.length - 2] : null;
   const strongestMonth = filteredTrendData.reduce((best, current) => (current.netSentiment > best.netSentiment ? current : best), filteredTrendData[0]);
@@ -182,6 +215,8 @@ function TrendChart({ data }) {
   const isDefaultRange = selectedStartMonth === defaultStartMonth && selectedEndMonth === defaultEndMonth;
   const visibleMonthsLabel = `${formatMonthLabel(selectedStartMonth)} - ${formatMonthLabel(selectedEndMonth)}`;
 
+  // Determine the sentiment direction by comparing the latest month's net
+  // sentiment with the one before it. Used in the stat card and guide text.
   const latestDirection = previous
     ? latest.netSentiment > (previous.netSentiment || 0)
       ? 'improving'
@@ -394,7 +429,7 @@ function TrendChart({ data }) {
                   >
                     <option value="all">All products</option>
                     {productTrendOptions.map((productId) => (
-                      <option key={`product-${productId}`} value={productId}>{productId}</option>
+                      <option key={`product-${productId}`} value={productId}>{truncateId(productId, 60)}</option>
                     ))}
                   </select>
                   <ChevronDown size={14} aria-hidden="true" />

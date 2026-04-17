@@ -1,11 +1,15 @@
 """
-Aspect-level monthly trend builders.
+[Pipeline Step 6 of 11] Aspect-Level Monthly Trends
 
-This module converts per-review ABSA outputs into month-over-month sentiment
-trend series for each aspect so the frontend can render aspect trend charts.
+Converts per-review ABSA outputs (Step 4) into month-over-month sentiment
+trend series for each aspect. The result feeds the "Selected Aspect Trend
+Over Time" chart on the dashboard.
+
+Requires a parsed `date` column in the processed DataFrame (Step 2).
+Returns None gracefully when dates are unavailable.
 
 Demo mapping:
-- Slide 10: Latest Demo Results - aspect trend chart in the dashboard
+- Slide 10: Latest Demo Results — aspect trend chart
 """
 
 from collections import defaultdict

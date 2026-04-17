@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
-import FileUpload from './components/FileUpload';
-import Dashboard from './components/Dashboard';
-import SinglePredict from './components/SinglePredict';
-import ModelInfo from './components/ModelInfo';
+import Header from './components/_2_Header';
+import FileUpload from './components/_3_FileUpload';
+import Dashboard from './components/_4_Dashboard';
+import SinglePredict from './components/_5_SinglePredict';
+import ModelInfo from './components/_6_ModelInfo';
 import './App.css';
 
 /**
@@ -24,6 +24,7 @@ function App() {
   const [analysisData, setAnalysisData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('upload');
+  const [activeSection, setActiveSection] = useState('overview');
   const [theme, setTheme] = useState(() => localStorage.getItem('app_theme') || 'dark');
 
   useEffect(() => {
@@ -45,6 +46,8 @@ function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         hasData={!!analysisData}
+        activeSection={activeSection}
+        setActiveSection={setActiveSection}
         theme={theme}
         setTheme={setTheme}
       />
@@ -61,7 +64,7 @@ function App() {
         {activeTab === 'dashboard' && analysisData && (
           // Dashboard receives the fully fetched analysis payload and turns it
           // into charts, summaries, trends, and export actions.
-          <Dashboard data={analysisData} />
+          <Dashboard data={analysisData} activeSection={activeSection} setActiveSection={setActiveSection} />
         )}
 
         {activeTab === 'predict' && (

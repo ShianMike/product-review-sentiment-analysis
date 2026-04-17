@@ -1,16 +1,23 @@
 """
-Helpers for product-level sentiment aggregation.
+[Pipeline Step 9 of 11] Product-Level Sentiment Aggregation
 
-This module converts review-level predictions into per-product summaries so
-the dashboard can compare sentiment outcomes across products.
+Groups review-level sentiment predictions by product ID to build per-product
+summary cards and optional per-product monthly trend series. The dashboard
+uses these to compare sentiment outcomes across products and highlight the
+best-performing and highest-risk products.
+
+Returns None when product identifiers are absent from the dataset.
 """
 
 import pandas as pd
 
 
-def build_product_summary(processed_df, sentiment_col, limit=12):
+def build_product_summary(processed_df, sentiment_col):
     """
     Build product-level sentiment aggregates from processed review data.
+
+    Returns all products so the frontend dropdown can list every product ID
+    and the table can display the full ranking.
 
     Returns None when product identifiers are missing or empty.
     """
@@ -68,8 +75,6 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
         return None
 
     rows_sorted = sorted(rows, key=lambda item: (-item['total_reviews'], item['product_id']))
-    # Keep the product comparison visual focused on the most-discussed products.
-    top_products = rows_sorted[:limit]
 
     # Prefer products with a minimum review count when picking "best" and "risk"
     # summary cards so a single outlier review does not dominate the callout.
@@ -81,7 +86,8 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
 
     return {
         'total_products': len(rows),
-        'top_products': top_products,
+        # All products included — the frontend handles display/pagination.
+        'top_products': rows_sorted,
         # These two records feed the top positive / top risk highlight cards.
         'top_positive_product': {
             'product_id': top_positive['product_id'],
@@ -96,7 +102,7 @@ def build_product_summary(processed_df, sentiment_col, limit=12):
     }
 
 
-def build_product_trends(processed_df, sentiment_col, limit=8):
+def build_product_trends(processed_df, sentiment_col):
     """
     Build per-product monthly trend series for products with date metadata.
 
@@ -115,8 +121,8 @@ def build_product_trends(processed_df, sentiment_col, limit=8):
         return None
 
     product_counts = trend_df.groupby('product_id').size().sort_values(ascending=False)
-    # Limit multi-series charts to the busiest products so the legend stays usable.
-    top_product_ids = [str(product_id) for product_id in product_counts.head(limit).index.tolist()]
+    # Include all products so the dropdown lists every available product.
+    top_product_ids = [str(product_id) for product_id in product_counts.index.tolist()]
 
     products = {}
     for product_id in top_product_ids:

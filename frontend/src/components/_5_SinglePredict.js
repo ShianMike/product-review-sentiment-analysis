@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Send, Loader2, MessageSquare } from 'lucide-react';
-import { predictSingle } from '../api';
+import { predictSingle } from '../_1_api';
 
 // Demo guide: use this component to show real-time single-review prediction.
 function SinglePredict() {

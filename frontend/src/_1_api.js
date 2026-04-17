@@ -12,6 +12,10 @@ import axios from 'axios';
  *
  * Keeping these calls here makes the fetch layer easy to explain and keeps
  * components focused on UI state rather than URL construction.
+
+ * - Q46: Frontend and backend communicate through REST API endpoints.
+ * - Q35: Exports are also requested through API calls rather than generated
+ *   directly inside the browser.
  */
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -93,6 +97,18 @@ export const exportAspectsCsv = (data) => {
 // Convert a backend export filename into a direct download URL.
 export const getExportUrl = (filename) => {
   return `${API_BASE}/api/export/${filename}`;
+};
+
+/**
+ * Fetch aspect and theme data filtered to a single product.
+ *
+ * The backend re-aggregates from the exported CSV on the fly so the initial
+ * analysis response stays lean without per-product breakdowns.
+ */
+export const getProductAnalysis = (exportFile, productId) => {
+  return api.get('/api/product-analysis', {
+    params: { file: exportFile, product_id: productId },
+  });
 };
 
 export default api;

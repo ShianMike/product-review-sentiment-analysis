@@ -1,16 +1,34 @@
+// _8_SentimentOverview.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Renders the "Overview" tab of the dashboard.
+// This file does NOT call the backend. The parent (Dashboard/App) already
+// completed the analysis fetch and passes the full result as `data`.
+//
+// Responsibilities:
+//   - Transform backend response fields into chart-ready shapes
+//   - Display sentiment counts, a pie chart, a ratings bar chart or fallback,
+//     a product-level comparison table, and a top-aspects/keywords preview
+//   - Manage the open/close state of the InfoGuideModal
+//   - Allow the user to focus on a single product via a dropdown filter
+// ─────────────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, MessageSquare, Tag, Zap, BarChart3, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
 
 const COLORS = {
   positive: '#22c55e',
   neutral: '#eab308',
   negative: '#ef4444',
 };
+
+function truncateId(text, max = 50) {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + '…';
+}
 
 const tooltipStyle = {
   background: 'var(--bg-card)',
@@ -35,6 +53,8 @@ const tooltipStyle = {
  */
 function SentimentOverview({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);
+  // selectedProductFocus holds the product_id string chosen in the dropdown,
+  // or 'all' meaning no filter is active.
   const [selectedProductFocus, setSelectedProductFocus] = useState('all');
   const {
     sentiment_distribution,
@@ -54,6 +74,8 @@ function SentimentOverview({ data }) {
   ];
 
   // Convert keyed rating counts like {"1": 12, "2": 5} into chart rows.
+  // If the uploaded file had no rating column, rating_distribution is null
+  // and the component falls back to a plain stats card instead of a bar chart.
   const ratingData = rating_distribution
     ? Object.entries(rating_distribution).map(([rating, count]) => ({
         rating: `${rating}★`,
@@ -61,6 +83,8 @@ function SentimentOverview({ data }) {
       }))
     : null;
 
+  // Sort aspects by total mentions descending and take the top 5 for the
+  // preview cards. The Aspects tab shows the full list.
   const topAspects = aspect_summary
     ? Object.entries(aspect_summary)
         .sort((a, b) => b[1].total_mentions - a[1].total_mentions)
@@ -73,6 +97,8 @@ function SentimentOverview({ data }) {
     ? (sentiment_distribution.positive.count / sentiment_distribution.negative.count).toFixed(1)
     : '∞';
 
+  // Find whichever sentiment bucket has the most reviews so the guide modal
+  // can name the "dominant sentiment" for this particular dataset.
   const dominantSentiment = pieData.reduce(
     (best, current) => (current.value > best.value ? current : best),
     pieData[0]
@@ -82,15 +108,19 @@ function SentimentOverview({ data }) {
   const totalPolarMentions =
     (theme_summary?.complaints_and_praises?.praises?.count || 0) +
     (theme_summary?.complaints_and_praises?.complaints?.count || 0);
-  const topProducts = product_summary?.top_products || [];
+  const allProducts = product_summary?.top_products || [];
   const bestProduct = product_summary?.top_positive_product || null;
   const riskProduct = product_summary?.top_risk_product || null;
-  const productIds = topProducts.map((product) => product.product_id);
-  const activeProductFocus = productIds.includes(selectedProductFocus) ? selectedProductFocus : 'all';
+  // Guard: only include the product_id in the valid set so a stale dropdown
+  // value from a previous upload cannot accidentally stay active.
+  const allProductIds = allProducts.map((product) => product.product_id);
+  const activeProductFocus = allProductIds.includes(selectedProductFocus) ? selectedProductFocus : 'all';
+  // When a product is focused, show only that one row; otherwise show up to
+  // the top 8 products to keep the table height reasonable.
   const focusedProduct = activeProductFocus === 'all'
     ? null
-    : topProducts.find((product) => product.product_id === activeProductFocus) || null;
-  const visibleTopProducts = focusedProduct ? [focusedProduct] : topProducts.slice(0, 8);
+    : allProducts.find((product) => product.product_id === activeProductFocus) || null;
+  const visibleTopProducts = focusedProduct ? [focusedProduct] : allProducts.slice(0, 8);
 
   // Each info button in this section maps to one entry in `guideSections`.
   // The content is built from the current analysis payload, so the modal copy
@@ -272,7 +302,7 @@ function SentimentOverview({ data }) {
             },
           ],
         },
-    products: topProducts.length > 0
+    products: allProducts.length > 0
       ? {
           title: 'Product-Level Sentiment',
           description: 'This panel compares sentiment quality across product IDs so users can quickly identify strong and risky products.',
@@ -305,6 +335,9 @@ function SentimentOverview({ data }) {
       : null,
   };
 
+  // Resolve the currently active guide object. If no button has been clicked
+  // yet (activeGuideKey is null), activeGuide will be null and the modal stays
+  // unmounted.
   const activeGuide = activeGuideKey ? guideSections[activeGuideKey] : null;
 
   return (
@@ -345,7 +378,7 @@ function SentimentOverview({ data }) {
         />
       </div>
 
-      {topProducts.length > 0 && (
+      {allProducts.length > 0 && (
         <div className="card">
           <CardHeaderWithGuide
             title="Product-Level Sentiment"
@@ -381,7 +414,7 @@ function SentimentOverview({ data }) {
               />
             </div>
 
-            {topProducts.length > 1 && (
+            {allProducts.length > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                 <div className="section-label" style={{ marginBottom: 0 }}>Product Filter</div>
                 <div className="trend-select-wrap" style={{ minWidth: 220 }}>
@@ -391,10 +424,10 @@ function SentimentOverview({ data }) {
                     onChange={(event) => setSelectedProductFocus(event.target.value)}
                     aria-label="Filter products in overview"
                   >
-                    <option value="all">All top products</option>
-                    {topProducts.map((product) => (
+                    <option value="all">All products ({allProducts.length})</option>
+                    {allProducts.map((product) => (
                       <option key={`overview-${product.product_id}`} value={product.product_id}>
-                        {product.product_id}
+                        {truncateId(product.product_id, 60)} ({product.total_reviews} reviews)
                       </option>
                     ))}
                   </select>
@@ -418,7 +451,7 @@ function SentimentOverview({ data }) {
                   {visibleTopProducts.map((product, index) => (
                     <tr key={`${product.product_id}-${index}`}>
                       <td>
-                        <span className="mono" style={{ fontSize: 11 }} title={product.product_id}>
+                        <span className="mono" style={{ fontSize: 11, maxWidth: 360, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }} title={product.product_id}>
                           {product.product_id}
                         </span>
                       </td>
@@ -579,11 +612,14 @@ function SentimentOverview({ data }) {
                 actions={<span className="count-badge">{Object.keys(aspect_summary).length}</span>}
               />
               <div className="card-body" style={{ padding: 0 }}>
-                {topAspects.map(([aspect, stats], i) => {
-                  const total = stats.positive_count + stats.neutral_count + stats.negative_count;
-                  const posW = total > 0 ? (stats.positive_count / total) * 100 : 0;
-                  const neuW = total > 0 ? (stats.neutral_count / total) * 100 : 0;
-                  const negW = total > 0 ? (stats.negative_count / total) * 100 : 0;
+                  {/* Each aspect row shows a mini stacked bar (green/yellow/red) whose
+                      segment widths are the per-sentiment percentage of that aspect's
+                      total mentions, computed inline here. */}
+                  {topAspects.map(([aspect, stats], i) => {
+                    const total = stats.positive_count + stats.neutral_count + stats.negative_count;
+                    const posW = total > 0 ? (stats.positive_count / total) * 100 : 0;
+                    const neuW = total > 0 ? (stats.neutral_count / total) * 100 : 0;
+                    const negW = total > 0 ? (stats.negative_count / total) * 100 : 0;
                   return (
                     <div
                       key={aspect}

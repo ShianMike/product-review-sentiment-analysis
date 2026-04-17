@@ -1,16 +1,25 @@
 """
-Sentiment Classification Module
-Trains and uses a sentiment classifier (Logistic Regression + TF-IDF)
-for product review sentiment analysis.
+[Pipeline Step 3 of 11] Sentiment Classification
 
-Pipeline summary:
-1. Vectorize processed review text with TF-IDF features.
-2. Train/predict with multiclass Logistic Regression.
-3. Optionally calibrate single-review probabilities with explicit cue rules.
+Core ML module. Receives cleaned text from Step 2 (_2_preprocessing) and
+predicts an overall sentiment label (positive / neutral / negative) with
+class probabilities.
+
+Key components:
+- TfidfVectorizer (unigrams + bigrams, up to 50 000 features).
+- Logistic Regression with class-weight rebalancing for the minority neutral class.
+- Rule-based calibration for single-text predictions when model confidence is low.
+
+Artifacts saved/loaded from backend/models/:
+- sentiment_model.joblib   – fitted Logistic Regression
+- tfidf_vectorizer.joblib  – fitted TF-IDF vectorizer
+- evaluation_metrics.joblib – accuracy, precision, recall, F1, confusion matrix
 
 Demo mapping:
-- Slide 7: Methods and Techniques Used
-- Slide 8: Current Model Performance
+- Slide 7 : Methods and Techniques Used
+- Slide 8 : Current Model Performance
+- Q15-Q22 / Q48: Covers label creation, TF-IDF + LR rationale, baseline framing,
+                  and interpreting accuracy vs macro metrics under class imbalance.
 """
 
 import os
@@ -25,9 +34,9 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
 from textblob import TextBlob
 
 try:
-    from .preprocessing import clean_text
+    from ._2_preprocessing import clean_text
 except ImportError:
-    from preprocessing import clean_text
+    from _2_preprocessing import clean_text
 
 
 # ─── Module-level constants ─────────────────────────────────────────────────────
@@ -36,9 +45,8 @@ MODEL_PATH = os.path.join(MODEL_DIR, 'sentiment_model.joblib')
 VECTORIZER_PATH = os.path.join(MODEL_DIR, 'tfidf_vectorizer.joblib')
 
 # ─── Rule-based calibration lexicons ────────────────────────────────────────────
-# High-precision phrases used to nudge single-text predictions when the model's
-# confidence falls below the 85 % gate.  Weights indicate signal strength:
-# 1.0 = near-certain cue (e.g. 'waste of money'), 0.4 = mild hint (e.g. 'great').
+# Used to nudge single-text predictions when the model's confidence is below
+# the 85% gate.  Weights range from 0.4 (mild hint) to 1.0 (near-certain cue).
 POSITIVE_CUES = {
     'amazing': 0.8,
     'awesome': 0.8,
@@ -79,8 +87,27 @@ NEGATIVE_CUES = {
     'would not recommend': 1.0,
 }
 
-# Cue dictionaries intentionally emphasize high-signal phrases seen in reviews.
-# Both dicts are checked at prediction time inside calibrate_single_prediction().
+NEUTRAL_CUES = {
+    'acceptable': 0.35,
+    'average': 0.65,
+    'could be better': 0.9,
+    'could be improved': 0.9,
+    'decent': 0.35,
+    'fine': 0.3,
+    'just okay': 0.6,
+    'mediocre': 0.85,
+    'mixed': 0.7,
+    'nothing special': 0.8,
+    'okay': 0.25,
+    'okayish': 0.75,
+    'ordinary': 0.7,
+    'price is reasonable': 0.3,
+    'pros and cons': 0.8,
+    'reasonable': 0.25,
+    'so so': 0.75,
+}
+
+# Both cue dicts are checked at prediction time inside calibrate_single_prediction().
 
 
 # ─── Classifier class ────────────────────────────────────────────────────────────
@@ -95,7 +122,13 @@ class SentimentClassifier:
       smaller neutral class (class_weight neutral=2.5)
     - Optional rule-based probability calibration for single-text prediction
 
-    The classifier supports three sentiment classes: positive, neutral, negative.
+        The classifier supports three sentiment classes: positive, neutral, negative.
+
+        - Q18: TF-IDF + Logistic Regression is used because it is fast,
+            interpretable, and strong as an academic baseline.
+        - Q20: Logistic Regression is a good fit for large sparse TF-IDF vectors.
+        - Q48: We call this a baseline because it is a solid starting point, not
+            the most advanced model possible.
     """
     
     def __init__(self):
@@ -108,6 +141,10 @@ class SentimentClassifier:
         - C=5.0 gives light L2 regularisation; tuned empirically on the Amazon dataset.
         - class_weight neutral=2.5 compensates for the minority neutral class.
         """
+        # Q18/Q19/Q20: TF-IDF transforms review text into weighted numeric
+        # features, and Logistic Regression learns class boundaries over those
+        # sparse features efficiently. This combination is easy to explain and
+        # performs well for a first working model.
         # Demo guide: this baseline model choice is what we explain in the methods slide.
         # TF-IDF is created here for sentiment modeling. It converts each review
         # into a sparse numeric vector where informative words/phrases get higher
@@ -143,6 +180,9 @@ class SentimentClassifier:
         - Dictionary of evaluation metrics
         """
         print("Splitting data into train/test sets...")
+        # Q21/Q22: Evaluation is designed to report both accuracy and macro
+        # metrics because accuracy alone can hide weak performance on minority
+        # classes in an imbalanced dataset.
         # Stratified split preserves class balance across train/test partitions.
         X_train, X_test, y_train, y_test = train_test_split(
             texts, labels, test_size=test_size, random_state=random_state,
@@ -197,6 +237,8 @@ class SentimentClassifier:
             'test_size': len(X_test)
         }
         
+        # Q21/Q22: If accuracy is high but macro F1 is lower, that usually
+        # means the model handles the majority class better than minority ones.
         # Print report
         print("\n" + "="*60)
         print("CLASSIFICATION REPORT")
@@ -360,17 +402,34 @@ def calibrate_single_prediction(text, model_probabilities, confidence_gate=0.85)
 
     # Rules only intervene when they strongly disagree with a non-confident model output.
     rule_label, rule_strength = get_rule_based_sentiment(text)
-    if rule_label == 'neutral' or rule_label == model_label or model_confidence >= confidence_gate:
+    if rule_label == model_label:
         return probabilities
 
-    # Blend model probabilities with a rule-informed target distribution.
-    calibration_weight = min(0.65, 0.35 + (rule_strength * 0.25))
-    target = {
-        'negative': 0.06,
-        'neutral': 0.12,
-        'positive': 0.06,
-    }
-    target[rule_label] = 0.82
+    # Mixed/hedged reviews often get over-pushed into the majority positive class
+    # by the baseline model. Let strong neutral evidence override even confident
+    # model outputs when the text clearly reads as balanced or lukewarm.
+    if rule_label == 'neutral':
+        if rule_strength < 0.6:
+            return probabilities
+
+        calibration_weight = min(0.85, 0.55 + (rule_strength * 0.2))
+        target = {
+            'negative': 0.09,
+            'neutral': 0.82,
+            'positive': 0.09,
+        }
+    else:
+        if model_confidence >= confidence_gate:
+            return probabilities
+
+        # Blend model probabilities with a rule-informed target distribution.
+        calibration_weight = min(0.65, 0.35 + (rule_strength * 0.25))
+        target = {
+            'negative': 0.06,
+            'neutral': 0.12,
+            'positive': 0.06,
+        }
+        target[rule_label] = 0.82
 
     adjusted = {
         label: ((1 - calibration_weight) * probabilities.get(label, 0.0))
@@ -395,6 +454,7 @@ def get_rule_based_sentiment(text):
     polarity = TextBlob(text).sentiment.polarity
     positive_score = keyword_score(normalized, POSITIVE_CUES)
     negative_score = keyword_score(normalized, NEGATIVE_CUES)
+    neutral_score = keyword_score(normalized, NEUTRAL_CUES)
 
     contrast_text = extract_contrast_clause(normalized)
     if contrast_text:
@@ -403,14 +463,24 @@ def get_rule_based_sentiment(text):
         polarity = (0.65 * polarity) + (0.35 * contrast_polarity)
         positive_score += keyword_score(contrast_text, POSITIVE_CUES) * 0.5
         negative_score += keyword_score(contrast_text, NEGATIVE_CUES) * 0.5
+        neutral_score += keyword_score(contrast_text, NEUTRAL_CUES) * 0.5
+
+        # Contrastive phrasing plus hedging is a strong sign of a lukewarm review.
+        if neutral_score > 0:
+            neutral_score += 0.15
+
+    if positive_score > 0 and negative_score > 0:
+        neutral_score += 0.25
 
     combined_score = max(min(polarity + ((positive_score - negative_score) * 0.2), 1.0), -1.0)
 
+    if neutral_score >= 0.6:
+        return 'neutral', min(1.0, neutral_score)
     if combined_score >= 0.45:
         return 'positive', combined_score
     if combined_score <= -0.45:
         return 'negative', abs(combined_score)
-    return 'neutral', abs(combined_score)
+    return 'neutral', min(1.0, max(abs(combined_score), neutral_score))
 
 
 def keyword_score(text, weighted_cues):

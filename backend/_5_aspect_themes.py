@@ -1,13 +1,23 @@
 """
-Helpers for aspect-level complaint and praise extraction.
+[Pipeline Step 5 of 11] Aspect-Level Complaint & Praise Extraction
 
-This module groups review text by detected aspect and aspect sentiment label,
-then extracts representative keywords/phrases for complaints and praises.
+Builds on Steps 4 (ABSA) and 7 (theme extraction) to produce per-aspect
+complaint and praise keyword summaries. For each detected aspect, reviews
+are grouped by sentiment label and then fed through TF-IDF keyword and
+phrase extractors to surface what users praise or complain about most.
+
+Consumes:
+- Processed review texts (from Step 2)
+- Per-review aspect-sentiment dicts (from Step 4)
+- Keyword / phrase extractors (from Step 7)
+
+Produces:
+- aspect_theme_summary dict used by the Aspect Analysis dashboard section.
 """
 
 from collections import defaultdict
 
-from themes import extract_keywords_tfidf, extract_frequent_phrases
+from _7_themes import extract_keywords_tfidf, extract_frequent_phrases
 
 
 def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):

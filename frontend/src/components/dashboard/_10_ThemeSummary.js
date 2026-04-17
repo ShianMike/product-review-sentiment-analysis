@@ -1,6 +1,26 @@
-import React, { useState } from 'react';
-import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGuide';
+// _10_ThemeSummary.js
+// ─────────────────────────────────────────────────────────────────────────────
+// Renders the "Themes" tab of the dashboard.
+// Theme extraction is a text-mining step in the backend pipeline that finds
+// recurring words and phrases without needing labelled categories. The results
+// are passed in via `data.theme_summary`.
+//
+// What this component renders:
+//   - Praise / complaint counts and the ratio between them
+//   - A word cloud built by scaling font size proportionally to word frequency
+//   - A ranked TF-IDF keyword list with inline score bars
+//   - Sentiment-bucketed keyword and phrase groups with a quick-filter
+//   - A product filter that triggers a backend fetch for product-scoped themes
+// ─────────────────────────────────────────────────────────────────────────────
+import React, { useState, useCallback } from 'react';
+import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { getProductAnalysis } from '../../_1_api';
+
+function truncateId(text, max = 50) {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + '…';
+}
 
 /**
  * ThemeSummary renders the non-chart text analytics section of the dashboard.
@@ -11,9 +31,39 @@ import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './DashboardGui
  * word-frequency data.
  */
 function ThemeSummary({ data }) {
-  const { theme_summary } = data;
+  const [selectedProduct, setSelectedProduct] = useState('all');
+  const [productData, setProductData] = useState(null);
+  const [productLoading, setProductLoading] = useState(false);
   const [selectedSentiment, setSelectedSentiment] = useState('all');
   const [activeGuideKey, setActiveGuideKey] = useState(null);
+
+  // Product list comes from the product summary computed during the main analysis.
+  const allProducts = data.product_summary?.top_products || [];
+  const hasProducts = allProducts.length > 1 && Boolean(data.export_file);
+
+  const handleProductChange = useCallback(async (productId) => {
+    setSelectedProduct(productId);
+
+    if (productId === 'all') {
+      setProductData(null);
+      return;
+    }
+
+    try {
+      setProductLoading(true);
+      const response = await getProductAnalysis(data.export_file, productId);
+      setProductData(response.data);
+    } catch {
+      setProductData(null);
+    } finally {
+      setProductLoading(false);
+    }
+  }, [data.export_file]);
+
+  // Use product-filtered theme data when a product is selected.
+  // The `|| data.theme_summary` fallback ensures the component doesn't blank
+  // out while the product fetch is in-flight.
+  const theme_summary = (selectedProduct !== 'all' && productData?.theme_summary) || data.theme_summary;
 
   if (!theme_summary) {
     return (
@@ -27,6 +77,9 @@ function ThemeSummary({ data }) {
   const { overall_keywords, complaints_and_praises, word_cloud_data, themes_by_sentiment } = theme_summary;
 
   // Convert backend summary counts into quick ratios for the stat cards.
+  // `totalSentiment` is only the polar (positive + negative) count; neutral
+  // reviews are excluded so the ratio shows the positive vs negative split
+  // without neutral diluting it.
   const praisesCount = complaints_and_praises?.praises?.count || 0;
   const complaintsCount = complaints_and_praises?.complaints?.count || 0;
   const totalSentiment = praisesCount + complaintsCount;
@@ -237,6 +290,37 @@ function ThemeSummary({ data }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {hasProducts && (
+        <div className="card">
+          <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div className="section-label" style={{ marginBottom: 0 }}>Product Filter</div>
+            <div className="trend-select-wrap" style={{ minWidth: 220 }}>
+              <select
+                className="input trend-select"
+                value={selectedProduct}
+                onChange={(e) => handleProductChange(e.target.value)}
+                disabled={productLoading}
+                aria-label="Filter themes by product"
+              >
+                <option value="all">All products ({allProducts.length})</option>
+                {allProducts.map((p) => (
+                  <option key={p.product_id} value={p.product_id}>{truncateId(p.product_id, 60)}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </div>
+            {productLoading && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Loading product data...</span>
+            )}
+            {selectedProduct !== 'all' && !productLoading && productData && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {productData.total_reviews?.toLocaleString()} reviews for this product
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-3">
         <ThemeMetricCard
           guideKey="praises"
@@ -353,8 +437,10 @@ function ThemeSummary({ data }) {
           <div className="card-body" style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', alignItems: 'center', padding: '20px 16px' }}>
             {word_cloud_data?.slice(0, 60).map((item, i) => {
               const maxVal = word_cloud_data[0]?.value || 1;
-              const ratio = item.value / maxVal;
+              const ratio = item.value / maxVal; // 0.0 to 1.0 relative to the most-frequent word
+              // Scale font size from 11px (rarest shown) up to 36px (most frequent).
               const fontSize = Math.max(11, Math.min(36, 11 + ratio * 25));
+              // Dim low-frequency words so they visually recede from high-frequency ones.
               const opacity = Math.max(0.3, ratio);
 
               return (
@@ -389,6 +475,8 @@ function ThemeSummary({ data }) {
           <div style={{ flex: 1, overflow: 'auto' }}>
             {overall_keywords?.map(([word, score], i) => {
               const maxScore = overall_keywords[0]?.[1] || 1;
+              // Express the keyword's score as a percentage of the highest score
+              // so the bar width visually represents relative importance.
               const barWidth = (score / maxScore) * 100;
               return (
                 <div
