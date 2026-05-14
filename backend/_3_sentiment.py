@@ -145,7 +145,7 @@ class SentimentClassifier:
         # features, and Logistic Regression learns class boundaries over those
         # sparse features efficiently. This combination is easy to explain and
         # performs well for a first working model.
-        # Demo guide: this baseline model choice is what we explain in the methods slide.
+        # This baseline model choice is what we explain in the methods slide.
         # TF-IDF is created here for sentiment modeling. It converts each review
         # into a sparse numeric vector where informative words/phrases get higher
         # weights than generic terms, which makes Logistic Regression more reliable.
