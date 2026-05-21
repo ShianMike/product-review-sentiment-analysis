@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, FileText, Database, Construction } from 'lucide-react';
+import { Download, FileText, Database } from 'lucide-react';
 import SentimentOverview from './dashboard/_8_SentimentOverview';
 import AspectAnalysis from './dashboard/_9_AspectAnalysis';
 import ThemeSummary from './dashboard/_10_ThemeSummary';
@@ -33,15 +33,15 @@ import { getExportUrl, exportJson } from '../_1_api';
  * - aspect_trends -> aspect trend line chart
  * - theme_summary -> keyword cards, phrases, word cloud
  * - trends / product_trends -> time-based charts
- * - reviews -> table payload (currently WIP/hidden in navigation)
+ * - reviews -> capped review-table payload
 
- * - Q1/Q30: This is the end-to-end view that turns uploaded reviews into
- *   structured insights for sentiment, aspects, themes, trends, and export.
- * - Q31: The reviews table is still marked WIP in the current prototype.
- * - Q32/Q35: Trends depend on date data, but export actions are available from
- *   the dashboard whenever analysis results exist.
- * - Q45: React is used here because it is well-suited to interactive,
- *   multi-view dashboard interfaces.
+ * Project.txt link:
+ * - Expected Outputs XI: this is the end-to-end dashboard that presents
+ *   sentiment, aspects, themes, trends, reviews, and exports.
+ * - Functional Requirement 7.2: trends remain optional because date metadata is
+ *   optional, while export actions are available whenever result data exists.
+ * - Tools and Technologies VIII: React is used because it is well-suited to
+ *   interactive, multi-view dashboard interfaces.
  *
  * @param {{
  *  data: {
@@ -231,12 +231,7 @@ function Dashboard({ data, activeSection, setActiveSection }) {
       {activeSection === 'aspects' && <AspectAnalysis data={data} />}
       {activeSection === 'themes' && <ThemeSummary data={data} />}
       {activeSection === 'trends' && <TrendChart data={data} />}
-      {activeSection === 'reviews' && (
-        <>
-          <WipBanner label="Reviews Table" />
-          <ReviewsTable data={data} />
-        </>
-      )}
+      {activeSection === 'reviews' && <ReviewsTable data={data} />}
 
       {/* Guide modal is always mounted and controlled by activeGuide for simple open/close logic. */}
       <InfoGuideModal
@@ -244,22 +239,6 @@ function Dashboard({ data, activeSection, setActiveSection }) {
         onClose={() => setActiveGuideKey(null)}
         dialogId="dashboard-summary-guide"
       />
-    </div>
-  );
-}
-
-/**
- * WipBanner marks unfinished dashboard modules while still allowing integration testing
- * of navigation, layout spacing, and data flow around in-progress features.
- */
-function WipBanner({ label }) {
-  return (
-    <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <Construction size={16} />
-      <div>
-        <div style={{ fontWeight: 700, fontSize: 12 }}>{label} — Work in Progress</div>
-        <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>This section is still under development and may not reflect the final design.</div>
-      </div>
     </div>
   );
 }

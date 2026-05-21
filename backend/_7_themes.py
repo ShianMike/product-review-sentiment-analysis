@@ -1,26 +1,23 @@
 """
 [Pipeline Step 7 of 11] Theme & Keyword Extraction
 
-Extracts global keywords, frequent n-gram phrases, complaint / praise
-buckets, and word-cloud frequency data from the corpus. Uses TF-IDF for
-keyword importance ranking and CountVectorizer for raw phrase frequency.
+How this module fulfills Project.txt requirements:
+- Objective 2.2.3 and Scope 3.1: extracts keywords, recurring phrases,
+  complaints, praises, and word-cloud data for the Themes dashboard tab.
+- Conceptual Framework: complements predefined ABSA categories with broader
+  corpus-level themes that can reveal issues outside the seven aspect buckets.
 
-Workflow:
-1. Compute corpus-wide top keywords and phrases.
-2. Repeat extraction by sentiment slice (positive / neutral / negative).
-3. Produce separate complaint and praise keyword lists.
-4. Build word-cloud frequency payload for the frontend.
-
-Also exports `extract_keywords_tfidf` and `extract_frequent_phrases` which
-Step 5 (_5_aspect_themes) reuses for per-aspect theme breakdowns.
-
-Demo mapping:
-- Slide 7  : Methods and Techniques Used
-- Slide 10 : Latest Demo Results — praises, complaints, and keywords
-- Q27-Q29  : Theme extraction vs aspect analysis, decision-making value.
+Research grounding:
+- TF-IDF keyword ranking and n-gram phrase counts follow classical text-mining
+  techniques commonly used in sentiment-analysis pipelines, as summarized by
+  Tan et al. (2023) and Mao et al. (2024).
+- Separating praise and complaint themes by predicted sentiment operationalizes
+  the opinion-mining idea described by Liu (2012): extract not only polarity,
+  but also the opinion targets and recurring language behind that polarity.
 """
 
 from collections import Counter
+import re
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from nltk.corpus import stopwords
@@ -28,24 +25,40 @@ from nltk.corpus import stopwords
 
 # ─── Stopword list ───────────────────────────────────────────────────────────────
 # Extend NLTK stopwords with common null-like placeholders seen in exported datasets.
-STOP_WORDS = set(stopwords.words('english')) | {'nan', 'none', 'null'}
+NEGATION_WORDS = {'not', 'no', 'nor', 'never'}
+PLACEHOLDER_WORDS = {'nan', 'none', 'null'}
 
+
+def _load_stop_words():
+    try:
+        return set(stopwords.words('english'))
+    except LookupError:
+        return {
+            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+            'has', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'to',
+            'was', 'were', 'with'
+        }
+
+
+STOP_WORDS = (_load_stop_words() - NEGATION_WORDS) | PLACEHOLDER_WORDS
+NEGATION_SKIP_WORDS = STOP_WORDS - PLACEHOLDER_WORDS
+WORD_RE = re.compile(r"[a-z0-9']+")
 
 # ─── Keyword & phrase extraction ──────────────────────────────────────────────────
 
 def extract_keywords_tfidf(texts, top_n=20):
     """
-        Extract top keywords from a corpus using TF-IDF scoring.
+    Extract top keywords from a corpus using TF-IDF scoring.
 
-        Q27/Q28: Theme extraction is broader than aspect analysis. Aspects use
-        predefined categories such as price or quality, while this function
-        surfaces important words and phrases across the corpus more freely.
+    Requirement mapping:
+    - Feeds the Themes tab keyword list, praise/complaint cards, aspect theme
+      summaries, and keyword/theme filters in the Reviews tab.
 
-        Why TF-IDF is used here:
-        - TF (term frequency) highlights words that appear often in review text.
-        - IDF (inverse document frequency) downweights words that appear in almost every review.
-        - The combination helps surface words that are both frequent and distinctive,
-            which is more useful for theme summaries than raw counts alone.
+    Why TF-IDF is used here:
+    - TF highlights words that appear often in review text.
+    - IDF downweights words that appear in almost every review.
+    - The combination surfaces terms that are frequent and distinctive, which
+      is more useful for theme summaries than raw counts alone.
     
     Parameters:
     - texts: list of preprocessed review texts
@@ -170,9 +183,8 @@ def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
     
     Returns dict with 'complaints' and 'praises' keys.
     """
-    # Q29: Separating praise and complaint themes helps users identify repeated
-    # strengths and pain points quickly without manually reading every review.
-    # Split sentiment buckets so complaints/praises can be shown independently in UI.
+    # Separating praise and complaint themes helps Project.txt's target users
+    # identify repeated strengths and pain points without reading every review.
     complaints_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
     praises_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']
     
@@ -203,18 +215,67 @@ def extract_word_cloud_data(texts, top_n=50):
     if not texts or len(texts) == 0:
         return []
     
-    # Count all words after lightweight token cleanup.
+    # Count all words after lightweight token cleanup. Negated phrases are
+    # kept together so "not good" does not become a misleading positive term.
     all_words = []
     for text in texts:
         if isinstance(text, str):
-            words = text.lower().split()
-            words = [w for w in words if w not in STOP_WORDS and len(w) > 2 and w != 'nan']
-            all_words.extend(words)
+            all_words.extend(_word_cloud_terms(text))
     
     word_counts = Counter(all_words)
     top_words = word_counts.most_common(top_n)
     
     return [{'text': word, 'value': count} for word, count in top_words]
+
+
+def _word_cloud_terms(text):
+    """Return word-cloud terms while preserving negated complaint phrases."""
+    words = WORD_RE.findall(text.lower())
+    terms = []
+    i = 0
+
+    while i < len(words):
+        word = words[i]
+
+        if word in NEGATION_WORDS:
+            j = i + 1
+            while j < len(words) and words[j] in NEGATION_SKIP_WORDS:
+                j += 1
+
+            if j < len(words):
+                target = words[j]
+                if target not in PLACEHOLDER_WORDS and len(target) > 2:
+                    terms.append(f"{word} {target}")
+                    i = j + 1
+                    continue
+
+            terms.append(word)
+            i += 1
+            continue
+
+        if word not in STOP_WORDS and len(word) > 2 and word not in PLACEHOLDER_WORDS:
+            terms.append(word)
+
+        i += 1
+
+    return terms
+
+
+def extract_word_clouds_by_sentiment(texts, sentiment_labels, top_n=50):
+    """
+    Build separate word-cloud frequency payloads for praise and complaint text.
+
+    Positive reviews feed the praise cloud. Negative reviews feed the complaint
+    cloud. The overall cloud is kept for backward-compatible dashboards.
+    """
+    positive_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']
+    negative_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
+
+    return {
+        'praises': extract_word_cloud_data(positive_texts, top_n=top_n),
+        'complaints': extract_word_cloud_data(negative_texts, top_n=top_n),
+        'overall': extract_word_cloud_data(texts, top_n=top_n),
+    }
 
 
 # ─── Unified theme summary (called by the dashboard API) ─────────────────────────
@@ -239,7 +300,11 @@ def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
     # overall_phrases -> recurring phrase panels
     # themes_by_sentiment -> sentiment-specific breakdown cards/tabs
     # complaints_and_praises -> praise/complaint summary cards
-    # word_cloud_data -> word cloud frequencies
+    # word_clouds -> sentiment-specific praise and complaint word clouds
+    # word_cloud_data -> legacy overall word cloud frequencies
+    word_clouds = extract_word_clouds_by_sentiment(
+        analysis_texts, sentiment_labels, top_n=80
+    )
     summary = {
         'overall_keywords': extract_keywords_tfidf(analysis_texts, top_n=20),
         'overall_phrases': extract_frequent_phrases(analysis_texts, top_n=15),
@@ -249,7 +314,8 @@ def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
         'complaints_and_praises': extract_complaints_and_praises(
             analysis_texts, sentiment_labels, top_n=10
         ),
-        'word_cloud_data': extract_word_cloud_data(analysis_texts, top_n=80)
+        'word_clouds': word_clouds,
+        'word_cloud_data': word_clouds['overall']
     }
     
     return summary

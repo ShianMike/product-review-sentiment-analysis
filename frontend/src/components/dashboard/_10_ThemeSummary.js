@@ -7,10 +7,16 @@
 //
 // What this component renders:
 //   - Praise / complaint counts and the ratio between them
-//   - A word cloud built by scaling font size proportionally to word frequency
+//   - Separate praise and complaint word clouds scaled by term frequency
 //   - A ranked TF-IDF keyword list with inline score bars
 //   - Sentiment-bucketed keyword and phrase groups with a quick-filter
 //   - A product filter that triggers a backend fetch for product-scoped themes
+//
+// Project.txt link:
+//   - Objective 2.2.3: extract recurring themes, praise terms, and complaint
+//     terms so users can understand why reviews are positive or negative.
+//   - Expected Outputs XI: display keyword/theme summaries and word-cloud style
+//     evidence for management interpretation.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useCallback } from 'react';
 import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
@@ -22,6 +28,13 @@ function truncateId(text, max = 50) {
   return text.slice(0, max) + '…';
 }
 
+function keywordsToWordCloud(keywords = []) {
+  return keywords.map(([text, score]) => ({
+    text,
+    value: Math.max(1, Math.round((Number(score) || 0) * 1000)),
+  }));
+}
+
 /**
  * ThemeSummary renders the non-chart text analytics section of the dashboard.
  *
@@ -29,6 +42,11 @@ function truncateId(text, max = 50) {
  * `theme_summary` object prepared during the analysis pipeline. That payload
  * contains ranked keywords, phrase groupings, complaint/praise buckets, and
  * word-frequency data.
+ *
+ * Research note:
+ * The backend uses TF-IDF for distinctive keywords and CountVectorizer n-grams
+ * for frequent phrases, matching the classical text-mining pipeline documented
+ * in Project.txt.
  */
 function ThemeSummary({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');
@@ -74,7 +92,7 @@ function ThemeSummary({ data }) {
     );
   }
 
-  const { overall_keywords, complaints_and_praises, word_cloud_data, themes_by_sentiment } = theme_summary;
+  const { overall_keywords, complaints_and_praises, word_clouds, themes_by_sentiment } = theme_summary;
 
   // Convert backend summary counts into quick ratios for the stat cards.
   // `totalSentiment` is only the polar (positive + negative) count; neutral
@@ -89,7 +107,10 @@ function ThemeSummary({ data }) {
   const topPraiseKeyword = complaints_and_praises?.praises?.keywords?.[0];
   const topComplaintKeyword = complaints_and_praises?.complaints?.keywords?.[0];
   const strongestKeyword = overall_keywords?.[0];
-  const largestWord = word_cloud_data?.[0];
+  const praiseWordCloudData = word_clouds?.praises || keywordsToWordCloud(complaints_and_praises?.praises?.keywords);
+  const complaintWordCloudData = word_clouds?.complaints || keywordsToWordCloud(complaints_and_praises?.complaints?.keywords);
+  const largestPraiseWord = praiseWordCloudData?.[0];
+  const largestComplaintWord = complaintWordCloudData?.[0];
   // Filter the sentiment-specific theme groups client-side for instant switching
   // between tabs without requesting new backend data.
   const visibleSentimentGroups = themes_by_sentiment
@@ -216,31 +237,33 @@ function ThemeSummary({ data }) {
       ],
     },
     wordCloud: {
-      title: 'Word Cloud',
-      description: 'The word cloud turns keyword frequency into visual emphasis so the most repeated terms appear larger.',
+      title: 'Praise and Complaint Word Clouds',
+      description: 'These word clouds separate favorable language from complaint language, so sellers can scan strengths and problems independently.',
       items: [
         {
-          label: 'Largest Word',
-          value: largestWord ? `${largestWord.text} (${largestWord.value.toLocaleString()})` : 'Unavailable',
-          description: largestWord
-            ? `Current result: "${largestWord.text}" is the largest word because it appears most strongly in the extracted word-cloud data.`
-            : 'Current result: no word-cloud entries are available.',
+          label: 'Top Praise Word',
+          value: largestPraiseWord ? `${largestPraiseWord.text} (${largestPraiseWord.value.toLocaleString()})` : 'Unavailable',
+          description: largestPraiseWord
+            ? `Current result: "${largestPraiseWord.text}" is the strongest praise-cloud term for the current product filter.`
+            : 'Current result: no praise word-cloud entries are available.',
+        },
+        {
+          label: 'Top Complaint Word',
+          value: largestComplaintWord ? `${largestComplaintWord.text} (${largestComplaintWord.value.toLocaleString()})` : 'Unavailable',
+          description: largestComplaintWord
+            ? `Current result: "${largestComplaintWord.text}" is the strongest complaint-cloud term for the current product filter.`
+            : 'Current result: no complaint word-cloud entries are available.',
         },
         {
           label: 'How To Read It',
-          value: 'Bigger word = stronger presence',
-          description: 'Larger words represent terms that appear more often or more strongly in the processed review text.',
-        },
-        {
-          label: 'Why It Matters',
-          value: 'Quick visual scan',
-          description: 'This helps first-time users spot the dominant discussion themes before they inspect the ranked lists in detail.',
+          value: 'Positive left, negative right',
+          description: 'The Praise Word Cloud uses positive reviews, while the Complaint Word Cloud uses negative reviews. Larger words appeared more often in that sentiment group.',
         },
       ],
     },
     tfidf: {
-      title: 'Top Keywords by TF-IDF',
-      description: 'This list ranks keywords by how distinctive they are in the review dataset.',
+      title: 'Stand-Out Review Keywords',
+      description: 'This list ranks keywords by how strongly they stand out in the review dataset.',
       items: [
         {
           label: 'Top Ranked Keyword',
@@ -425,55 +448,46 @@ function ThemeSummary({ data }) {
       </div>
 
       <div className="theme-summary-layout">
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
+        <div className="card theme-word-cloud-card">
           <CardHeaderWithGuide
-            title="Word Cloud"
+            title="Praise and Complaint Word Clouds"
             icon={<Hash size={14} style={{ color: 'var(--accent)' }} />}
             guideKey="wordCloud"
             activeGuideKey={activeGuideKey}
             onOpenGuide={setActiveGuideKey}
             dialogId="theme-guide"
           />
-          <div className="card-body" style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', alignItems: 'center', padding: '20px 16px' }}>
-            {word_cloud_data?.slice(0, 60).map((item, i) => {
-              const maxVal = word_cloud_data[0]?.value || 1;
-              const ratio = item.value / maxVal; // 0.0 to 1.0 relative to the most-frequent word
-              // Scale font size from 11px (rarest shown) up to 36px (most frequent).
-              const fontSize = Math.max(11, Math.min(36, 11 + ratio * 25));
-              // Dim low-frequency words so they visually recede from high-frequency ones.
-              const opacity = Math.max(0.3, ratio);
-
-              return (
-                <span
-                  key={i}
-                  style={{
-                    fontSize: `${fontSize}px`,
-                    opacity,
-                    color: 'var(--text-accent)',
-                    cursor: 'default',
-                    fontWeight: ratio > 0.5 ? 700 : ratio > 0.25 ? 600 : 400,
-                    lineHeight: 1.3,
-                  }}
-                  title={`${item.text}: ${item.value.toLocaleString()} occurrences`}
-                >
-                  {item.text}
-                </span>
-              );
-            })}
+          <div className="card-body theme-word-cloud-card-body">
+            <div className="sentiment-word-cloud-grid">
+              <WordCloudPanel
+                title="Praise Word Cloud"
+                subtitle="Frequent words from positive reviews"
+                words={praiseWordCloudData}
+                color="var(--green)"
+                emptyText="No positive-review terms available for this selection."
+              />
+              <WordCloudPanel
+                title="Complaint Word Cloud"
+                subtitle="Frequent words from negative reviews"
+                words={complaintWordCloudData}
+                color="var(--red)"
+                emptyText="No negative-review terms available for this selection."
+              />
+            </div>
           </div>
         </div>
 
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', maxHeight: 400 }}>
+        <div className="card theme-keyword-card">
           <CardHeaderWithGuide
-            title="Top Keywords by TF-IDF"
+            title="Stand-Out Review Keywords"
             icon={<MessageCircle size={14} style={{ color: 'var(--accent)' }} />}
             guideKey="tfidf"
             activeGuideKey={activeGuideKey}
             onOpenGuide={setActiveGuideKey}
             dialogId="theme-guide"
           />
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {overall_keywords?.map(([word, score], i) => {
+          <div className="theme-keyword-list">
+            {overall_keywords?.slice(0, 12).map(([word, score], i) => {
               const maxScore = overall_keywords[0]?.[1] || 1;
               // Express the keyword's score as a percentage of the highest score
               // so the bar width visually represents relative importance.
@@ -587,6 +601,49 @@ function ThemeSummary({ data }) {
         onClose={() => setActiveGuideKey(null)}
         dialogId="theme-guide"
       />
+    </div>
+  );
+}
+
+function WordCloudPanel({ title, subtitle, words = [], color, emptyText }) {
+  const maxVal = words?.[0]?.value || 1;
+  const visibleWords = words?.slice(0, 32) || [];
+
+  return (
+    <div className="word-cloud-panel">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{subtitle}</div>
+      </div>
+
+      <div className="word-cloud-body">
+        {visibleWords.length > 0 ? visibleWords.map((item, i) => {
+          const ratio = item.value / maxVal;
+          const lengthPenalty = item.text.length > 22 ? 4 : item.text.length > 14 ? 2 : 0;
+          const fontSize = Math.max(11, Math.min(24, 11 + Math.sqrt(ratio) * 13 - lengthPenalty));
+          const opacity = Math.max(0.45, Math.min(1, 0.55 + ratio * 0.45));
+
+          return (
+            <span
+              key={`${item.text}-${i}`}
+              className="word-cloud-token"
+              style={{
+                fontSize: `${fontSize}px`,
+                opacity,
+                color,
+                cursor: 'default',
+                fontWeight: ratio > 0.5 ? 800 : ratio > 0.25 ? 650 : 500,
+                lineHeight: 1.25,
+              }}
+              title={`${item.text}: ${item.value.toLocaleString()} occurrences`}
+            >
+              {item.text}
+            </span>
+          );
+        }) : (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{emptyText}</div>
+        )}
+      </div>
     </div>
   );
 }

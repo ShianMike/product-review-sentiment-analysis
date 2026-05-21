@@ -1,11 +1,17 @@
 """
 [Pipeline Step 8 of 11] Monthly Sentiment Trends
 
-Converts date-aware review rows into month-level sentiment time-series data.
-Each month entry contains raw counts and percentages for positive, neutral,
-and negative reviews, ready for the dashboard trend charts.
+How this module fulfills Project.txt requirements:
+- Scope 3.1 and Expected Outputs XI: creates monthly sentiment trend data for
+  the Trends tab when the upload includes usable date/timestamp metadata.
+- Functional Requirement 7.2: supports date-aware charts while gracefully
+  returning None when dates are absent or unparseable.
 
-Returns None when a date column is missing or unparseable.
+Research grounding:
+- This is deterministic descriptive analytics, not forecasting. It aggregates
+  sentiment labels over time so users can monitor customer satisfaction changes,
+  a decision-support use case discussed by Tan et al. (2023), Mao et al. (2024),
+  and PowerReviews (2023).
 """
 
 

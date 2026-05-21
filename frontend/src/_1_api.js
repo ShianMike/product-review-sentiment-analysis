@@ -10,12 +10,12 @@ import axios from 'axios';
  * 3) receive one consolidated result object containing all chart/table payloads
  * 4) pass that object into dashboard components for rendering
  *
- * Keeping these calls here makes the fetch layer easy to explain and keeps
- * components focused on UI state rather than URL construction.
-
- * - Q46: Frontend and backend communicate through REST API endpoints.
- * - Q35: Exports are also requested through API calls rather than generated
- *   directly inside the browser.
+ * Project.txt link:
+ * - System Architecture 7.1 requires React-to-Flask REST communication.
+ * - Functional Requirement 7.2 includes async analysis, exports, saved
+ *   projects, product drill-down, full reviews, prediction, and model info.
+ * Keeping these calls here makes that contract explicit and keeps components
+ * focused on UI state rather than URL construction.
  */
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -110,5 +110,21 @@ export const getProductAnalysis = (exportFile, productId) => {
     params: { file: exportFile, product_id: productId },
   });
 };
+
+export const getReviews = (exportFile, productId = 'all') => {
+  return api.get('/api/reviews', {
+    params: { file: exportFile, product_id: productId },
+  });
+};
+
+// Saved-project helpers fulfill the backend persistence requirement in
+// Project.txt Functional Requirement 7.2.
+export const getProjects = () => api.get('/api/projects');
+
+export const getProject = (projectId) => api.get(`/api/projects/${projectId}`);
+
+export const deleteProject = (projectId) => api.delete(`/api/projects/${projectId}`);
+
+export const cleanupGeneratedFiles = () => api.post('/api/storage/cleanup');
 
 export default api;

@@ -4,6 +4,8 @@
 //
 // Aspect-Based Sentiment Analysis (ABSA) groups review text by product topic
 // (price, quality, delivery, etc.) and scores each topic independently.
+// The backend implementation is rule-based: curated aspect keywords are matched
+// with boundary-aware patterns, then TextBlob scores the matched context.
 //
 // Data flow:
 //   1. Default data comes from the global analysis payload in props.
@@ -13,6 +15,12 @@
 //      memoized and recomputed only when its direct inputs change.
 //   4. Clicking an aspect row in the list opens a detail panel showing that
 //      aspect's polarity, phrase themes, and time-series trend.
+//
+// Project.txt link:
+//   - Objective 2.2.3: show aspect-specific sentiment, praises, complaints,
+//     and trends instead of only one overall sentiment label.
+//   - Expected Outputs XI: supports aspect export files and interactive
+//     dashboard drill-downs for product-quality decision support.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
@@ -54,6 +62,11 @@ const tooltipStyle = {
  *
  * This component performs frontend-only reshaping so the chart library can
  * render the data, but it does not recompute aspect analytics itself.
+ *
+ * Research note:
+ * Because ABSA is rule-based in the backend, this UI presents transparent
+ * counts, polarity labels, and matched theme phrases rather than hiding the
+ * evidence behind an opaque neural model.
  */
 function AspectAnalysis({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');

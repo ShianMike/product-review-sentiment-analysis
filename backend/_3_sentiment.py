@@ -1,25 +1,25 @@
 """
 [Pipeline Step 3 of 11] Sentiment Classification
 
-Core ML module. Receives cleaned text from Step 2 (_2_preprocessing) and
-predicts an overall sentiment label (positive / neutral / negative) with
-class probabilities.
+How this module fulfills Project.txt requirements:
+- Objective 2.2.2 and Functional Requirement 7.2: predicts positive, neutral,
+  or negative sentiment with confidence scores for every uploaded review.
+- Evaluation Plan IX: trains/evaluates with accuracy, macro precision, macro
+  recall, macro F1, classification report, and confusion matrix.
+- Tools and Technologies VIII: implements the scikit-learn TF-IDF + Logistic
+  Regression model persisted with joblib.
 
-Key components:
-- TfidfVectorizer (unigrams + bigrams, up to 50 000 features).
-- Logistic Regression with class-weight rebalancing for the minority neutral class.
-- Rule-based calibration for single-text predictions when model confidence is low.
-
-Artifacts saved/loaded from backend/models/:
-- sentiment_model.joblib   – fitted Logistic Regression
-- tfidf_vectorizer.joblib  – fitted TF-IDF vectorizer
-- evaluation_metrics.joblib – accuracy, precision, recall, F1, confusion matrix
-
-Demo mapping:
-- Slide 7 : Methods and Techniques Used
-- Slide 8 : Current Model Performance
-- Q15-Q22 / Q48: Covers label creation, TF-IDF + LR rationale, baseline framing,
-                  and interpreting accuracy vs macro metrics under class imbalance.
+Research grounding:
+- TF-IDF followed by a classical classifier is a standard sentiment-analysis
+  baseline pipeline discussed in survey literature such as Tan et al. (2023)
+  and Mao et al. (2024).
+- Logistic Regression is kept as the final model because the saved comparison
+  in Project.txt Section 6.3.1 shows it ranked first by macro F1 and accuracy
+  while remaining interpretable and suitable for sparse TF-IDF vectors.
+- The rule-based single-review calibration layer is a prototype safeguard for
+  obvious lexical cues; it follows the lexicon/rule-based sentiment tradition
+  described by Liu (2012), but it is intentionally secondary to the trained ML
+  model used for dataset analysis.
 """
 
 import os
@@ -45,8 +45,11 @@ MODEL_PATH = os.path.join(MODEL_DIR, 'sentiment_model.joblib')
 VECTORIZER_PATH = os.path.join(MODEL_DIR, 'tfidf_vectorizer.joblib')
 
 # ─── Rule-based calibration lexicons ────────────────────────────────────────────
-# Used to nudge single-text predictions when the model's confidence is below
-# the 85% gate.  Weights range from 0.4 (mild hint) to 1.0 (near-certain cue).
+# These cue dictionaries satisfy the Test Prediction page's need for sensible
+# single-review behavior on obvious phrases. They are not the primary dataset
+# classifier; they only nudge low-confidence single-text predictions. The idea
+# is consistent with lexicon/rule-based sentiment methods reviewed by Liu (2012).
+# Weights range from 0.4 (mild hint) to 1.0 (near-certain cue).
 POSITIVE_CUES = {
     'amazing': 0.8,
     'awesome': 0.8,
@@ -78,10 +81,14 @@ NEGATIVE_CUES = {
     'disappointed': 0.7,
     'not good': 0.9,
     'not recommend': 1.0,
+    'not worth': 0.9,
+    'not worth money': 1.0,
     'poor quality': 0.9,
     'terrible': 0.9,
     'unhelpful': 0.7,
     'very bad': 0.8,
+    'never again': 0.9,
+    'never buy': 1.0,
     'waste of money': 1.0,
     'worst': 1.0,
     'would not recommend': 1.0,
@@ -116,19 +123,22 @@ class SentimentClassifier:
     """
     TF-IDF + Logistic Regression sentiment classifier.
 
+    Requirement mapping:
+    - Produces the sentiment labels and probabilities used by Overview, Reviews,
+      product summaries, trend charts, and exports.
+    - Persists evaluation metrics for the Model Info page required in
+      Project.txt Functional Requirement 7.2.
+
     Architecture overview:
     - TfidfVectorizer with unigrams + bigrams (up to 50 000 features)
     - Logistic Regression with class-weight rebalancing to handle the
       smaller neutral class (class_weight neutral=2.5)
     - Optional rule-based probability calibration for single-text prediction
 
-        The classifier supports three sentiment classes: positive, neutral, negative.
-
-        - Q18: TF-IDF + Logistic Regression is used because it is fast,
-            interpretable, and strong as an academic baseline.
-        - Q20: Logistic Regression is a good fit for large sparse TF-IDF vectors.
-        - Q48: We call this a baseline because it is a solid starting point, not
-            the most advanced model possible.
+    Research note:
+    TF-IDF + a linear classifier is used as an interpretable academic baseline,
+    aligned with the classical ML approaches summarized by Tan et al. (2023),
+    Mao et al. (2024), and Daza et al. (2024).
     """
     
     def __init__(self):
@@ -141,14 +151,10 @@ class SentimentClassifier:
         - C=5.0 gives light L2 regularisation; tuned empirically on the Amazon dataset.
         - class_weight neutral=2.5 compensates for the minority neutral class.
         """
-        # Q18/Q19/Q20: TF-IDF transforms review text into weighted numeric
-        # features, and Logistic Regression learns class boundaries over those
-        # sparse features efficiently. This combination is easy to explain and
-        # performs well for a first working model.
-        # This baseline model choice is what we explain in the methods slide.
-        # TF-IDF is created here for sentiment modeling. It converts each review
-        # into a sparse numeric vector where informative words/phrases get higher
-        # weights than generic terms, which makes Logistic Regression more reliable.
+        # TF-IDF converts each review into sparse weighted word/phrase features.
+        # Logistic Regression then learns class boundaries over those features.
+        # This matches the classical, explainable ML baseline described in
+        # Project.txt Section 6.3 and supported by Tan et al. (2023).
         self.vectorizer = TfidfVectorizer(
             max_features=50000,
             ngram_range=(1, 2),   # Unigrams + bigrams
@@ -180,9 +186,8 @@ class SentimentClassifier:
         - Dictionary of evaluation metrics
         """
         print("Splitting data into train/test sets...")
-        # Q21/Q22: Evaluation is designed to report both accuracy and macro
-        # metrics because accuracy alone can hide weak performance on minority
-        # classes in an imbalanced dataset.
+        # Evaluation reports both accuracy and macro metrics because accuracy
+        # alone can hide weak minority-class performance in imbalanced reviews.
         # Stratified split preserves class balance across train/test partitions.
         X_train, X_test, y_train, y_test = train_test_split(
             texts, labels, test_size=test_size, random_state=random_state,
@@ -210,7 +215,7 @@ class SentimentClassifier:
         
         # Evaluate and persist machine-readable metrics for dashboard/API use.
         print("Evaluating model...")
-        # Demo guide: these saved metrics power the model-info screen in the prototype.
+        # These saved metrics power the Project.txt Model Info requirement.
         y_pred = self.model.predict(X_test_tfidf)
         
         self.evaluation_metrics = {
@@ -237,9 +242,8 @@ class SentimentClassifier:
             'test_size': len(X_test)
         }
         
-        # Q21/Q22: If accuracy is high but macro F1 is lower, that usually
-        # means the model handles the majority class better than minority ones.
-        # Print report
+        # If accuracy is high but macro F1 is lower, the model likely handles
+        # the majority class better than minority sentiment classes.
         print("\n" + "="*60)
         print("CLASSIFICATION REPORT")
         print("="*60)
@@ -419,11 +423,11 @@ def calibrate_single_prediction(text, model_probabilities, confidence_gate=0.85)
             'positive': 0.09,
         }
     else:
-        if model_confidence >= confidence_gate:
+        if model_confidence >= confidence_gate and rule_strength < 1.0:
             return probabilities
 
         # Blend model probabilities with a rule-informed target distribution.
-        calibration_weight = min(0.65, 0.35 + (rule_strength * 0.25))
+        calibration_weight = min(0.78, 0.45 + (rule_strength * 0.33))
         target = {
             'negative': 0.06,
             'neutral': 0.12,
@@ -471,6 +475,13 @@ def get_rule_based_sentiment(text):
 
     if positive_score > 0 and negative_score > 0:
         neutral_score += 0.25
+
+    # Strong explicit cue phrases should not be diluted by TextBlob's known
+    # tendency to score words like "good" positively inside "not good".
+    if negative_score >= 0.9 and negative_score >= positive_score + 0.25:
+        return 'negative', min(1.0, negative_score)
+    if positive_score >= 0.9 and positive_score >= negative_score + 0.25:
+        return 'positive', min(1.0, positive_score)
 
     combined_score = max(min(polarity + ((positive_score - negative_score) * 0.2), 1.0), -1.0)
 

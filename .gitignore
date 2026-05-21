@@ -33,6 +33,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
 # Large data files (keep samples, exclude full datasets)
 *.csv
@@ -49,6 +50,7 @@ backend/models/*.joblib
 # Uploaded / exported runtime files
 backend/uploads/
 backend/exports/
+backend/projects/
 
 # Environment variables
 .env

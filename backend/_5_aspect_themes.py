@@ -1,18 +1,19 @@
 """
 [Pipeline Step 5 of 11] Aspect-Level Complaint & Praise Extraction
 
-Builds on Steps 4 (ABSA) and 7 (theme extraction) to produce per-aspect
-complaint and praise keyword summaries. For each detected aspect, reviews
-are grouped by sentiment label and then fed through TF-IDF keyword and
-phrase extractors to surface what users praise or complain about most.
+How this module fulfills Project.txt requirements:
+- Objective 2.2.3: identifies frequent complaints and praises per configured
+  aspect, not just overall sentiment.
+- Dashboard Requirement 7.2: supplies the Aspects tab with per-aspect praise and
+  complaint keywords/phrases for the detail drill-down panel.
 
-Consumes:
-- Processed review texts (from Step 2)
-- Per-review aspect-sentiment dicts (from Step 4)
-- Keyword / phrase extractors (from Step 7)
-
-Produces:
-- aspect_theme_summary dict used by the Aspect Analysis dashboard section.
+Research grounding:
+- It combines ABSA outputs with TF-IDF keyword ranking and n-gram phrase counts,
+  matching the broader text-mining/theme-extraction workflow discussed by Tan
+  et al. (2023) and Mao et al. (2024).
+- The aspect grouping is rule-derived from Step 4, so the interpretability and
+  limitations are the same as the rule-based ABSA formulation surveyed by
+  Wankhade et al. (2024).
 """
 
 from collections import defaultdict

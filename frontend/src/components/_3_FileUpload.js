@@ -1,7 +1,26 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { startAnalyzeJob, getAnalyzeJobStatus } from '../_1_api';
+import { Upload, FileText, Loader2, AlertCircle, CheckCircle2, Database, Calendar, FolderOpen, Trash2 } from 'lucide-react';
+import { startAnalyzeJob, getAnalyzeJobStatus, getProjects, getProject, deleteProject, cleanupGeneratedFiles } from '../_1_api';
+
+// Upload workflow component for Project.txt Functional Requirement 7.2:
+// users can submit CSV/XLS/XLSX review datasets, watch async analysis progress,
+// and manage backend-saved projects.
+
+function formatFileSize(bytes) {
+  if (!bytes) return 'Unknown size';
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function formatHistoryDate(value) {
+  if (!value) return 'Unknown date';
+  return new Date(value).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 /**
  * FileUpload owns the async fetch workflow that eventually powers the dashboard.
@@ -17,6 +36,13 @@ import { startAnalyzeJob, getAnalyzeJobStatus } from '../_1_api';
  *
  * This means the visualization components themselves do not fetch data. They
  * only receive the already-prepared analysis payload returned by this flow.
+ *
+ * Project.txt link:
+ * - Scope 3.1 requires CSV/Excel upload support for product review datasets.
+ * - Non-Functional Requirement 7.3 requires responsive feedback during longer
+ *   analysis runs, so this component uses background jobs and polling.
+ * - Saved projects support continued work without requiring users to re-upload
+ *   the same dataset repeatedly.
  */
 function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [error, setError] = useState(null);
@@ -24,6 +50,26 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [progressStage, setProgressStage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [serverProjects, setServerProjects] = useState([]);
+  const [serverProjectsError, setServerProjectsError] = useState('');
+  const [loadingProjectId, setLoadingProjectId] = useState('');
+  const [deletingProjectId, setDeletingProjectId] = useState('');
+  const [isCleaningStorage, setIsCleaningStorage] = useState(false);
+  const [storageCleanupMessage, setStorageCleanupMessage] = useState('');
+
+  const loadServerProjects = useCallback(async () => {
+    try {
+      setServerProjectsError('');
+      const response = await getProjects();
+      setServerProjects(Array.isArray(response.data?.projects) ? response.data.projects : []);
+    } catch {
+      setServerProjectsError('Saved projects are unavailable right now.');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadServerProjects();
+  }, [loadServerProjects]);
 
   // react-dropzone gives us accepted and rejected files. We keep validation
   // lightweight here because the backend still performs the real file checks.
@@ -34,7 +80,8 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
       return;
     }
     if (acceptedFiles.length > 0) {
-      setSelectedFile(acceptedFiles[0]);
+      const nextFile = acceptedFiles[0];
+      setSelectedFile(nextFile);
     }
   }, []);
 
@@ -61,8 +108,9 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
    * such as sentiment distribution, aspect summaries, themes, trends, exports,
    * and optional product/reviews payloads.
    */
-  const handleAnalyze = async () => {
-    if (!selectedFile) return;
+  const runAnalysisForFile = useCallback(async (file) => {
+    if (!file) return;
+    setSelectedFile(file);
     setIsLoading(true);
     setError(null);
     setProgress('Uploading file and starting analysis...');
@@ -71,7 +119,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
 
     try {
       // First request: upload the raw file and ask backend to queue analysis.
-      const startResponse = await startAnalyzeJob(selectedFile);
+      const startResponse = await startAnalyzeJob(file);
       const jobId = startResponse.data?.job_id;
 
       if (!jobId) {
@@ -104,6 +152,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
           // This callback is the handoff point from "fetching" to "visualizing".
           // job.result is the single payload later consumed by Dashboard.
           onAnalysisComplete(job.result);
+          loadServerProjects();
           return;
         }
 
@@ -126,118 +175,274 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [loadServerProjects, onAnalysisComplete, setIsLoading]);
+
+  const handleAnalyze = useCallback(() => {
+    if (!selectedFile) return;
+    runAnalysisForFile(selectedFile);
+  }, [runAnalysisForFile, selectedFile]);
+
+  const handleLoadServerProject = useCallback(async (project) => {
+    try {
+      setServerProjectsError('');
+      setStorageCleanupMessage('');
+      setLoadingProjectId(project.id);
+      const response = await getProject(project.id);
+      const result = response.data?.project?.result;
+      if (!result) {
+        throw new Error('Saved project result is unavailable.');
+      }
+      onAnalysisComplete(result);
+    } catch (err) {
+      setServerProjectsError(err.response?.data?.error || 'Unable to load saved project.');
+    } finally {
+      setLoadingProjectId('');
+    }
+  }, [onAnalysisComplete]);
+
+  const handleDeleteServerProject = useCallback(async (project) => {
+    try {
+      setServerProjectsError('');
+      setStorageCleanupMessage('');
+      setDeletingProjectId(project.id);
+      await deleteProject(project.id);
+      setServerProjects((current) => current.filter((item) => item.id !== project.id));
+    } catch (err) {
+      setServerProjectsError(err.response?.data?.error || 'Unable to delete saved project.');
+    } finally {
+      setDeletingProjectId('');
+    }
+  }, []);
+
+  const handleCleanupGeneratedFiles = useCallback(async () => {
+    try {
+      setServerProjectsError('');
+      setStorageCleanupMessage('');
+      setIsCleaningStorage(true);
+      const response = await cleanupGeneratedFiles();
+      setStorageCleanupMessage(response.data?.message || 'Generated files cleanup completed.');
+      await loadServerProjects();
+    } catch (err) {
+      setServerProjectsError(err.response?.data?.error || 'Unable to clean generated files.');
+    } finally {
+      setIsCleaningStorage(false);
+    }
+  }, [loadServerProjects]);
 
   return (
-    <div style={{ maxWidth: 560, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Upload Product Reviews
-        </h2>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          Upload a CSV or Excel file containing product reviews to analyze sentiment,
-          extract themes, and generate insights.
-        </p>
-      </div>
+    <div className="upload-workspace">
+      <section className="upload-primary">
+        <div className="upload-intro">
+          <h2>
+            Upload Product Reviews
+          </h2>
+          <p>
+            Upload a CSV or Excel file containing product reviews to analyze sentiment,
+            extract themes, and generate insights.
+          </p>
+        </div>
 
-      {/* Dropzone */}
-      <div
-        {...getRootProps()}
-        className={`dropzone ${isDragActive ? 'active' : ''} ${selectedFile ? 'has-file' : ''}`}
-      >
-        <input {...getInputProps()} />
-        {selectedFile ? (
-          <>
-            <CheckCircle2 size={32} style={{ color: 'var(--green)', marginBottom: 12 }} />
-            <div className="dropzone-title">{selectedFile.name}</div>
-            <div className="dropzone-sub mono">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</div>
-            <div className="dropzone-sub" style={{ marginTop: 8 }}>Click or drop to change file</div>
-          </>
-        ) : (
-          <>
-            <Upload size={32} className="dropzone-icon" />
-            <div className="dropzone-title">
-              {isDragActive ? 'Drop your file here' : 'Drag & drop your review file'}
-            </div>
-            <div className="dropzone-sub">or click to browse — CSV, XLSX supported</div>
-          </>
+        {/* Dropzone */}
+        <div
+          {...getRootProps()}
+          className={`dropzone ${isDragActive ? 'active' : ''} ${selectedFile ? 'has-file' : ''}`}
+        >
+          <input {...getInputProps()} />
+          {selectedFile ? (
+            <>
+              <CheckCircle2 size={32} style={{ color: 'var(--green)', marginBottom: 12 }} />
+              <div className="dropzone-title">{selectedFile.name}</div>
+              <div className="dropzone-sub mono">{formatFileSize(selectedFile.size)}</div>
+              <div className="dropzone-sub" style={{ marginTop: 8 }}>Click or drop to change file</div>
+            </>
+          ) : (
+            <>
+              <Upload size={32} className="dropzone-icon" />
+              <div className="dropzone-title">
+                {isDragActive ? 'Drop your file here' : 'Drag & drop your review file'}
+              </div>
+              <div className="dropzone-sub">or click to browse — CSV, XLSX supported</div>
+            </>
+          )}
+        </div>
+
+        {/* Requirements */}
+        <div className="upload-requirements">
+          <div className="upload-requirement-row">
+            <span className="upload-requirement-dot" />
+            <span><strong>Required:</strong> A column containing review text (auto-detected)</span>
+          </div>
+          <div className="upload-requirement-row">
+            <span className="upload-requirement-dot upload-requirement-dot-optional" />
+            <span><strong>Optional:</strong> Rating/Score, Date/Time, Product ID, Summary columns</span>
+          </div>
+          <div className="upload-requirement-row">
+            <span className="upload-requirement-dot upload-requirement-dot-limit" />
+            <span>Maximum ~50,000 reviews processed per upload</span>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="alert alert-error" style={{ marginTop: 12 }}>
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{error}</span>
+          </div>
         )}
-      </div>
 
-      {/* Requirements */}
-      <div className="card" style={{ marginTop: 12 }}>
+        {/* Progress */}
+        {(progress || isLoading) && (
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div className="section-label" style={{ marginBottom: 0 }}>Analysis Progress</div>
+                <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progressPercent}%</div>
+              </div>
+
+              <div
+                className="bar-track"
+                style={{ height: 8 }}
+                role="progressbar"
+                aria-label="Analysis progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progressPercent}
+              >
+                <div className="bar-fill bar-fill-accent" style={{ width: `${progressPercent}%` }} />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                {isLoading && <Loader2 size={14} className="spin" style={{ flexShrink: 0 }} />}
+                <span>
+                  {progressStage ? `${progressStage}: ` : ''}
+                  {progress || 'Waiting for status updates...'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Analyze button */}
+        <button
+          onClick={handleAnalyze}
+          disabled={!selectedFile || isLoading}
+          className="btn btn-primary"
+          style={{ width: '100%', padding: '12px 16px', fontSize: 13 }}
+        >
+          {isLoading ? (
+            <>
+              <Loader2 size={16} className="spin" />
+              Analyzing...
+            </>
+          ) : (
+            'Analyze Reviews'
+          )}
+        </button>
+      </section>
+
+      <aside className="upload-history upload-projects card">
         <div className="card-header">
-          <FileText size={14} />
-          <h3>File Requirements</h3>
-        </div>
-        <div className="card-body" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-          {/* Demo guide: this card helps explain required vs optional dataset fields. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>• <strong>Required:</strong> A column containing review text (auto-detected)</span>
-            <span>• <strong>Optional:</strong> Rating/Score, Date/Time, Product ID, Summary columns</span>
-            <span>• Maximum ~50,000 reviews processed per upload</span>
+          <div className="card-header-title-group">
+            <Database size={14} />
+            <h3>Saved Projects</h3>
           </div>
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="alert alert-error" style={{ marginTop: 12 }}>
-          <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Progress */}
-      {(progress || isLoading) && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <div className="section-label" style={{ marginBottom: 0 }}>Analysis Progress</div>
-              <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progressPercent}%</div>
-            </div>
-
-            <div
-              className="bar-track"
-              style={{ height: 8 }}
-              role="progressbar"
-              aria-label="Analysis progress"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={progressPercent}
+          <div className="card-header-actions">
+            <button
+              type="button"
+              className="btn btn-secondary upload-projects-cleanup-btn"
+              onClick={handleCleanupGeneratedFiles}
+              disabled={isLoading || isCleaningStorage}
+              aria-label="Clean generated files"
+              title="Clean generated upload, export, and saved project files using retention settings"
             >
-              <div className="bar-fill bar-fill-accent" style={{ width: `${progressPercent}%` }} />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-              {isLoading && <Loader2 size={14} className="spin" style={{ flexShrink: 0 }} />}
-              <span>
-                {progressStage ? `${progressStage}: ` : ''}
-                {progress || 'Waiting for status updates...'}
-              </span>
-            </div>
+              {isCleaningStorage ? (
+                <Loader2 size={12} className="spin" />
+              ) : (
+                <Trash2 size={12} />
+              )}
+              Clean Files
+            </button>
           </div>
         </div>
-      )}
+        <div className="card-body upload-history-body">
+          {serverProjectsError && (
+            <div className="upload-history-error">
+              <AlertCircle size={13} />
+              <span>{serverProjectsError}</span>
+            </div>
+          )}
 
-      {/* Analyze button */}
-      <button
-        onClick={handleAnalyze}
-        disabled={!selectedFile || isLoading}
-        className="btn btn-primary"
-        style={{ width: '100%', marginTop: 16, padding: '12px 16px', fontSize: 13 }}
-      >
-        {isLoading ? (
-          <>
-            <Loader2 size={16} className="spin" />
-            Analyzing...
-          </>
-        ) : (
-          'Analyze Reviews'
-        )}
-      </button>
+          {!serverProjectsError && storageCleanupMessage && (
+            <div className="upload-history-notice">
+              <CheckCircle2 size={13} />
+              <span>{storageCleanupMessage}</span>
+            </div>
+          )}
+
+          {!serverProjectsError && (serverProjects.length > 0 ? serverProjects.map((project) => (
+              <article key={project.id} className="upload-history-item upload-history-completed">
+                <div className="upload-history-top">
+                  <div className="upload-history-file">
+                    <Database size={14} />
+                    <span title={project.title || project.filename}>{project.title || project.filename}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="upload-history-delete-btn"
+                    onClick={() => handleDeleteServerProject(project)}
+                    disabled={isLoading || deletingProjectId === project.id || loadingProjectId === project.id}
+                    title="Delete saved project"
+                    aria-label="Delete saved project"
+                  >
+                    {deletingProjectId === project.id ? (
+                      <Loader2 size={12} className="spin" />
+                    ) : (
+                      <Trash2 size={12} />
+                    )}
+                  </button>
+                </div>
+
+                <div className="upload-history-meta">
+                  <span><FileText size={12} /> {Number(project.total_reviews || 0).toLocaleString()} reviews</span>
+                  <span><Calendar size={12} /> {formatHistoryDate(project.created_at)}</span>
+                </div>
+                <div className="upload-history-sub">
+                  {formatProjectSentiment(project)}
+                </div>
+                <div className="upload-history-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary upload-history-action"
+                    onClick={() => handleLoadServerProject(project)}
+                    disabled={isLoading || loadingProjectId === project.id || deletingProjectId === project.id}
+                  >
+                    {loadingProjectId === project.id ? (
+                      <>
+                        <Loader2 size={13} className="spin" />
+                        Loading
+                      </>
+                    ) : (
+                      <>
+                        <FolderOpen size={13} />
+                        Load
+                      </>
+                    )}
+                  </button>
+                </div>
+              </article>
+            )) : (
+            <div className="upload-history-empty">
+              Completed analyses will appear here.
+            </div>
+          ))}
+        </div>
+      </aside>
     </div>
   );
+}
+
+function formatProjectSentiment(project) {
+  return `${Number(project.positive_pct || 0).toFixed(1)}% positive • ${Number(project.negative_pct || 0).toFixed(1)}% negative`;
 }
 
 export default FileUpload;

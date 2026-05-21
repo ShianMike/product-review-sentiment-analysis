@@ -1,34 +1,34 @@
 """
 [Pipeline Step 11 of 11] Flask API Server — Orchestrator
 
-Entry point for the ReviewLens backend. Wires together all preceding pipeline
-steps (2-10) into REST endpoints that the React frontend consumes.
+How this module fulfills Project.txt requirements:
+- System Architecture 7.1: acts as the Flask REST backend that connects the
+  React frontend to the analytics engine.
+- Functional Requirements 7.2: exposes health/model-info, upload/analyze,
+  async job polling, saved projects, exports, product drill-down, full review
+  loading, and single-review prediction endpoints.
+- Non-Functional Requirements 7.3: centralizes upload-size limits, structured
+  errors, logging, local storage cleanup, and graceful handling of optional
+  dataset fields.
 
 Runtime flow:
 1. Accept CSV/Excel uploads and normalize columns   (Step 2  : _2_preprocessing)
 2. Predict overall sentiment                        (Step 3  : _3_sentiment)
-3. Run ABSA aspect detection                        (Step 4  : _4_absa)
+3. Run rule-based ABSA                              (Step 4  : _4_absa)
 4. Extract per-aspect complaint/praise keywords      (Step 5  : _5_aspect_themes)
 5. Build per-aspect monthly trends                   (Step 6  : _6_aspect_trends)
 6. Extract global themes and keywords                (Step 7  : _7_themes)
 7. Compute monthly sentiment trends                  (Step 8  : _8_trends)
 8. Aggregate product-level summaries                 (Step 9  : _9_product_summary)
 9. Build review-table payload                        (Step 10 : _10_reviews_table)
+10. Persist exports and saved analysis projects      (Step 13 : _13_storage)
 
-Frontend fetch relationship:
-1. React uploads a dataset to POST /api/analyze/start.
-2. Backend returns a job_id immediately.
-3. React polls GET /api/analyze/status/<job_id> for progress updates.
-4. Once the job finishes, the status payload includes `result`.
-5. That result object is passed directly into dashboard components for rendering.
-
-Demo mapping:
-- Slide 6 : System Architecture and Runtime Workflow
-- Slide 9 : Working Prototype and User Flow
-- Q1/Q4   : System purpose — converting review files into structured insights.
-- Q2      : Intended users — sellers, product managers, support teams.
-- Q3      : Product reviews as a topic — structured ratings + unstructured text.
-- Q30/Q35/Q46: Backend half of the working prototype; REST API for the React UI.
+Research grounding:
+- The orchestrated pipeline mirrors the standard sentiment-analysis workflow
+  described by Tan et al. (2023) and Mao et al. (2024): preprocessing, feature
+  representation, classification, aggregation, and dashboard-ready reporting.
+- The ABSA portion is deliberately rule-based and explainable, consistent with
+  rule-based ABSA approaches surveyed by Wankhade et al. (2024).
 """
 
 # ─── Standard library ───────────────────────────────────────────────────────
@@ -60,11 +60,21 @@ from _10_reviews_table import build_reviews_table
 from _9_product_summary import build_product_summary, build_product_trends
 from _5_aspect_themes import build_aspect_theme_summary
 from _6_aspect_trends import build_aspect_trends
+from _12_model_comparison import list_model_candidates
+from _13_storage import (
+    cleanup_folder,
+    delete_analysis_project,
+    list_analysis_projects,
+    load_analysis_project,
+    read_int_env,
+    save_analysis_project,
+    validate_project_id,
+)
 
 # ─── App initialization ──────────────────────────────────────────────────────
-# Q43/Q44: Flask is used as the backend framework because it is lightweight and
-# practical for exposing prototype API endpoints for upload, analysis, export,
-# prediction, and model information.
+# Flask is used because Project.txt scopes the system as a lightweight local
+# prototype: one REST server can expose upload, analysis, export, saved project,
+# prediction, and model-information endpoints without heavier infrastructure.
 # static_folder=None because the React build is served by its own dev server
 # (or a separate nginx/CDN layer in production).
 app = Flask(__name__, static_folder=None)
@@ -76,11 +86,43 @@ logger = logging.getLogger('reviewlens.api')
 # ─── File upload configuration ───────────────────────────────────────────────
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 EXPORT_FOLDER = os.path.join(os.path.dirname(__file__), 'exports')
-# Q34: Upload support intentionally includes CSV, XLSX, and XLS so users can
-# analyze common business spreadsheet formats without reshaping files first.
+MODEL_COMPARISON_RESULTS_PATH = os.path.join(EXPORT_FOLDER, 'model_comparison_full_training_data.json')
+PROJECTS_FOLDER = os.path.join(os.path.dirname(__file__), 'projects')
+# Upload support intentionally includes CSV, XLSX, and XLS because Project.txt
+# Scope 3.1 requires common business spreadsheet formats without manual reshaping.
 ALLOWED_EXTENSIONS = {'.csv', '.xlsx', '.xls'}   # Only tabular formats are accepted
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
+os.makedirs(PROJECTS_FOLDER, exist_ok=True)
+
+
+def load_model_comparison_results():
+    """Load saved multi-model comparison results for the Model Info screen."""
+    if not os.path.exists(MODEL_COMPARISON_RESULTS_PATH):
+        return {
+            'models': list_model_candidates(),
+            'results': [],
+            'source_file': None,
+        }
+
+    try:
+        with open(MODEL_COMPARISON_RESULTS_PATH, 'r', encoding='utf-8') as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        logger.exception('Failed to load model comparison results')
+        return {
+            'models': list_model_candidates(),
+            'results': [],
+            'source_file': None,
+        }
+
+    models = payload.get('models') if isinstance(payload.get('models'), list) else list_model_candidates()
+    results = payload.get('results') if isinstance(payload.get('results'), list) else []
+    return {
+        'models': models,
+        'results': results,
+        'source_file': os.path.basename(MODEL_COMPARISON_RESULTS_PATH),
+    }
 
 
 def _env_to_bool(raw_value, default=False):
@@ -114,10 +156,38 @@ def _get_max_upload_mb(default_mb=50):
 
 
 MAX_UPLOAD_MB = _get_max_upload_mb(default_mb=50)
+MAX_UPLOAD_FILES = read_int_env('MAX_UPLOAD_FILES', 50, minimum=1)
+MAX_EXPORT_FILES = read_int_env('MAX_EXPORT_FILES', 200, minimum=1)
+MAX_PROJECT_FILES = read_int_env('MAX_PROJECT_FILES', 50, minimum=1)
+STORAGE_MAX_AGE_HOURS = read_int_env('STORAGE_MAX_AGE_HOURS', 168, minimum=0)
 # Flask enforces the byte-level limit; werkzeug raises RequestEntityTooLarge when exceeded.
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
 # Restrict CORS to only our known frontend origins to follow least-privilege principles.
 CORS(app, resources={r'/api/*': {'origins': _get_cors_origins()}})
+
+
+def _error_response(message, status_code=400, code='request_error', details=None):
+    payload = {
+        'status': 'error',
+        'code': code,
+        'error': str(message),
+    }
+    if details is not None:
+        payload['details'] = details
+    return jsonify(payload), status_code
+
+
+def _run_storage_cleanup():
+    """Apply Project.txt retention settings only to generated runtime files."""
+    cleanup_folder(UPLOAD_FOLDER, max_files=MAX_UPLOAD_FILES, max_age_hours=STORAGE_MAX_AGE_HOURS, prefixes=('upload_',))
+    cleanup_folder(
+        EXPORT_FOLDER,
+        max_files=MAX_EXPORT_FILES,
+        max_age_hours=STORAGE_MAX_AGE_HOURS,
+        suffixes=('.csv', '.json'),
+        prefixes=('processed_', 'analysis_summary_', 'aspect_report_', 'filtered_reviews_'),
+    )
+    cleanup_folder(PROJECTS_FOLDER, max_files=MAX_PROJECT_FILES, max_age_hours=STORAGE_MAX_AGE_HOURS, suffixes=('.json',))
 
 
 def _validate_extension(filename):
@@ -156,12 +226,17 @@ def read_csv_safe(file):
 @app.errorhandler(RequestEntityTooLarge)
 def file_too_large(_error):
     """Return a clean error when uploads exceed MAX_CONTENT_LENGTH."""
-    return jsonify({'error': f'File too large. Maximum allowed size is {MAX_UPLOAD_MB} MB.'}), 413
+    return _error_response(
+        f'File too large. Maximum allowed size is {MAX_UPLOAD_MB} MB.',
+        status_code=413,
+        code='file_too_large',
+    )
 
 
 # ─── Classifier singleton ────────────────────────────────────────────────────
 # Load once at startup so the first API request does not pay the cold-start penalty.
-print("Loading sentiment model...")
+_run_storage_cleanup()
+logger.info('Loading sentiment model...')
 classifier = get_classifier()
 
 
@@ -182,10 +257,9 @@ def ensure_latest_classifier():
 # - analysis needs multiple progress stages for a visible progress bar
 # - once analysis is done, the final dashboard payload must still be retrievable
 #
-# A simple dict + Lock is sufficient for single-process classroom deployments
-# and avoids Redis/Celery complexity.
-# Q39/Q41: This also highlights a current limitation: the prototype is
-# file-based and in-memory rather than backed by a persistent database.
+# A simple dict + Lock is sufficient for the single-process local/classroom
+# deployment delimited in Project.txt. A production deployment would replace
+# this with durable job storage or a queue such as Redis/Celery.
 ANALYSIS_JOBS = {}
 ANALYSIS_JOBS_LOCK = Lock()
 
@@ -275,21 +349,16 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     JSON. In the async flow it is stored under `job.result` and later returned
     by `/api/analyze/status/<job_id>` once the job completes.
 
-        - Q30: The working prototype already supports upload/analyze, sentiment,
-            aspects, themes, trends, model info, prediction, and export.
-        - Q32: Trend outputs depend on the uploaded dataset containing a usable
-            date column; the rest of the analysis can still run without trends.
-        - Q33: The row cap keeps the classroom prototype responsive without
-            heavier infrastructure.
-        - Q42: This is still a prototype architecture, not a fully hardened
-            business deployment stack.
+    Requirement notes:
+    - Trends are optional because Project.txt treats date columns as optional.
+    - Product summaries are optional because product identifiers are optional.
+    - The row cap supports the Performance non-functional requirement for a
+      classroom-scale prototype without requiring distributed processing.
     """
     if len(df) == 0:
         raise ValueError('Uploaded file is empty')
 
-    # Keep processing time predictable for classroom-scale demos.
-    # Q33: About 50k rows is a practical cap for demo responsiveness. It keeps
-    # processing time and browser wait time reasonable on local machines.
+    # Keep processing time predictable for classroom-scale use.
     max_rows = 50000
     if len(df) > max_rows:
         df = df.sample(n=max_rows, random_state=42)
@@ -423,6 +492,10 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         }
     }
 
+    saved_project = save_analysis_project(PROJECTS_FOLDER, response, title=filename)
+    response = saved_project['result']
+    _run_storage_cleanup()
+
     _emit_progress(progress_callback, 100, 'Completed', 'Analysis complete.')
     return response
 
@@ -533,17 +606,19 @@ def health_check():
 def model_info():
     """Return model evaluation metrics for the dashboard Model Info panel.
 
-    Exposes accuracy, precision, recall, F1, per-class breakdown, and confusion
-    matrix so the results can be displayed directly on the demo slide.
+    Exposes accuracy, precision, recall, F1, per-class breakdown, confusion
+    matrix, and model-comparison results required by Project.txt Section IX.
     """
-    # Demo guide: use this endpoint when presenting the saved model metrics.
+    # This endpoint backs the Model Info page and documents final-model choice.
     ensure_latest_classifier()
     if not classifier.is_trained:
-        return jsonify({'error': 'Model not trained yet'}), 400
+        return _error_response('Model not trained yet', status_code=400, code='model_not_trained')
     
     return jsonify({
         'model_type': 'Logistic Regression + TF-IDF',
         'evaluation_metrics': classifier.evaluation_metrics,
+        'candidate_models': list_model_candidates(),
+        'model_comparison': load_model_comparison_results(),
         'aspect_categories': list(ASPECT_KEYWORDS.keys())
     })
 
@@ -563,11 +638,11 @@ def upload_and_analyze():
     available for any two-step column-mapping workflow.
     """
     if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+        return _error_response('No file uploaded', status_code=400, code='missing_file')
     
     file = request.files['file']
     if not file.filename:
-        return jsonify({'error': 'No file selected'}), 400
+        return _error_response('No file selected', status_code=400, code='missing_filename')
     
     filename: str = file.filename
     try:
@@ -598,10 +673,10 @@ def upload_and_analyze():
     
     except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
         logger.warning('Upload parse issue for %s: %s', filename, exc)
-        return jsonify({'error': f'Error reading file: {str(exc)}'}), 400
+        return _error_response(f'Error reading file: {str(exc)}', status_code=400, code='file_parse_error')
     except Exception as exc:
         logger.exception('Unexpected upload processing failure for %s', filename)
-        return jsonify({'error': f'Unexpected upload failure: {str(exc)}'}), 500
+        return _error_response(f'Unexpected upload failure: {str(exc)}', status_code=500, code='upload_failed')
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -621,13 +696,14 @@ def analyze():
     - frontend dashboard sections can consume it without checking which route
       produced it
     """
-    # Demo guide: this route is the clearest input → preprocessing → output flow.
+    # The synchronous route preserves the clearest one-request input → pipeline
+    # → response flow for small files and development testing.
     if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+        return _error_response('No file uploaded', status_code=400, code='missing_file')
     
     file = request.files['file']
     if not file.filename:
-        return jsonify({'error': 'No file selected'}), 400
+        return _error_response('No file selected', status_code=400, code='missing_filename')
     
     filename: str = file.filename
     try:
@@ -655,10 +731,10 @@ def analyze():
     
     except ValueError as exc:
         logger.warning('Analysis validation issue for %s: %s', filename, exc)
-        return jsonify({'error': str(exc)}), 400
+        return _error_response(str(exc), status_code=400, code='analysis_validation_error')
     except Exception as exc:
         logger.exception('Analysis failed for %s', filename)
-        return jsonify({'error': f'Analysis failed: {str(exc)}'}), 500
+        return _error_response(f'Analysis failed: {str(exc)}', status_code=500, code='analysis_failed')
 
 
 @app.route('/api/analyze/start', methods=['POST'])
@@ -677,11 +753,11 @@ def analyze_start():
     4. Browser receives `job_id` right away and begins polling status.
     """
     if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+        return _error_response('No file uploaded', status_code=400, code='missing_file')
 
     file = request.files['file']
     if not file.filename:
-        return jsonify({'error': 'No file selected'}), 400
+        return _error_response('No file selected', status_code=400, code='missing_filename')
 
     filename: str = file.filename
     try:
@@ -724,7 +800,7 @@ def analyze_status(job_id):
     """
     job = _get_analysis_job(job_id)
     if not job:
-        return jsonify({'error': 'Analysis job not found'}), 404
+        return _error_response('Analysis job not found', status_code=404, code='job_not_found')
 
     # Keep the progress payload small while the job is still running so polling
     # stays lightweight. The large dashboard result is attached only at the end.
@@ -745,6 +821,64 @@ def analyze_status(job_id):
         payload['result'] = job['result']
 
     return jsonify(payload)
+
+
+# ─── API routes: saved analysis projects ─────────────────────────────────────
+
+@app.route('/api/projects', methods=['GET'])
+def projects_list():
+    """Return metadata for analyses saved on the backend filesystem."""
+    return jsonify({
+        'status': 'success',
+        'projects': list_analysis_projects(PROJECTS_FOLDER),
+    })
+
+
+@app.route('/api/projects/<project_id>', methods=['GET'])
+def projects_get(project_id):
+    """Return a saved analysis result by project ID."""
+    try:
+        validate_project_id(project_id)
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, code='invalid_project_id')
+
+    payload = load_analysis_project(PROJECTS_FOLDER, project_id)
+    if not payload:
+        return _error_response('Saved analysis project not found.', status_code=404, code='project_not_found')
+
+    return jsonify({
+        'status': 'success',
+        'project': payload,
+    })
+
+
+@app.route('/api/projects/<project_id>', methods=['DELETE'])
+def projects_delete(project_id):
+    """Delete a saved analysis project by project ID."""
+    try:
+        validate_project_id(project_id)
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, code='invalid_project_id')
+
+    deleted = delete_analysis_project(PROJECTS_FOLDER, project_id)
+    if not deleted:
+        return _error_response('Saved analysis project not found.', status_code=404, code='project_not_found')
+
+    return jsonify({
+        'status': 'success',
+        'deleted': True,
+        'project_id': project_id,
+    })
+
+
+@app.route('/api/storage/cleanup', methods=['POST'])
+def storage_cleanup():
+    """Run generated-file cleanup using the configured retention settings."""
+    _run_storage_cleanup()
+    return jsonify({
+        'status': 'success',
+        'message': 'Storage cleanup completed.',
+    })
 
 
 # ─── API routes: exports ─────────────────────────────────────────────────────
@@ -923,6 +1057,65 @@ def export_aspects_csv():
 
 # ─── API routes: per-product drill-down ──────────────────────────────────────
 
+@app.route('/api/reviews', methods=['GET'])
+def reviews_table():
+    """
+    Return the full review-table payload from a saved processed export.
+
+    Query params:
+      - file      : name of the exported CSV in backend/exports/
+      - product_id: optional product identifier. Omit or pass "all" for every
+                    product in the processed export.
+
+    The main analysis response intentionally includes only a capped review list
+    so the dashboard can load quickly. The Reviews tab calls this endpoint on
+    demand when users need the full row-level table.
+    """
+    export_file = request.args.get('file', '').strip()
+    product_id = request.args.get('product_id', '').strip()
+
+    if not export_file:
+        return jsonify({'error': 'The file parameter is required.'}), 400
+
+    safe_name = os.path.basename(export_file)
+    export_path = os.path.join(EXPORT_FOLDER, safe_name)
+
+    if not os.path.isfile(export_path):
+        return jsonify({'error': f'Export file not found: {safe_name}'}), 404
+
+    try:
+        df = pd.read_csv(export_path)
+
+        if product_id and product_id != 'all':
+            if 'product_id' not in df.columns:
+                return jsonify({'error': 'Dataset has no product_id column.'}), 400
+            df['product_id'] = df['product_id'].astype(str).str.strip()
+            df = df[df['product_id'] == product_id]
+
+        sentiment_col = 'sentiment_label' if 'sentiment_label' in df.columns else 'predicted_sentiment'
+        if sentiment_col not in df.columns:
+            return jsonify({'error': 'Processed export has no sentiment column.'}), 400
+
+        reviews_data = build_reviews_table(df.reset_index(drop=True), sentiment_col, limit=None)
+
+        return jsonify({
+            'status': 'success',
+            'filename': safe_name,
+            'product_id': product_id or 'all',
+            'total_reviews': int(len(df)),
+            'reviews': reviews_data,
+            'columns_detected': {
+                'rating': 'rating' in df.columns,
+                'date': 'date' in df.columns,
+                'product_id': 'product_id' in df.columns,
+                'summary': 'summary' in df.columns,
+            },
+        })
+
+    except Exception as exc:
+        logger.exception('Reviews table load failed for %s', safe_name)
+        return jsonify({'error': str(exc)}), 500
+
 @app.route('/api/product-analysis', methods=['GET'])
 def product_analysis():
     """
@@ -1022,6 +1215,12 @@ def product_analysis():
         original_texts = filtered['original_text'].tolist() if 'original_text' in filtered.columns else []
         sentiment_col = 'sentiment_label' if 'sentiment_label' in filtered.columns else 'predicted_sentiment'
         sentiment_labels = filtered[sentiment_col].tolist() if sentiment_col in filtered.columns else []
+        product_summary = build_product_summary(filtered, sentiment_col) if sentiment_col in filtered.columns else None
+        product_sentiment = (
+            product_summary['top_products'][0]
+            if product_summary and product_summary.get('top_products')
+            else None
+        )
         theme_summary = generate_theme_summary(
             texts=original_texts,
             sentiment_labels=sentiment_labels,
@@ -1032,6 +1231,8 @@ def product_analysis():
             'status': 'success',
             'product_id': product_id,
             'total_reviews': len(filtered),
+            'sentiment_distribution': product_sentiment.get('sentiment_summary') if product_sentiment else None,
+            'product_summary': product_sentiment,
             'aspect_summary': aspect_summary,
             'aspect_theme_summary': aspect_theme_summary,
             'aspect_trends': aspect_trends,
@@ -1056,9 +1257,11 @@ def predict_single():
     - probabilities        : full class probability breakdown
     - aspects              : per-aspect sentiment from ABSA
 
-    Used by the Single Predict panel on the dashboard for live demos.
+    Used by the Single Predict panel to test the trained classifier outside a
+    full dataset upload, satisfying Project.txt Functional Requirement 7.2.
     """
-    # Demo guide: use this endpoint for the single-review prototype demo.
+    # Single-text prediction reuses the same preprocessing and classifier stack
+    # as dataset analysis so behavior stays consistent.
     data = request.get_json()
     if not data or 'text' not in data:
         return jsonify({'error': 'Please provide a "text" field'}), 400

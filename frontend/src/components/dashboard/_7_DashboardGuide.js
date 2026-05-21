@@ -23,8 +23,8 @@ export function GuideButton({
   // All dashboard help/info buttons use this one trigger component so the
   // button behavior stays consistent across overview, themes, trends, aspects,
   // and model-info screens.
-  // Q2/Q29/Q30: These guide buttons support non-technical users such as
-  // sellers or product teams by explaining the analytics in plain language.
+  // These guide buttons support Project.txt's target users, including sellers
+  // and product teams, by explaining analytics in plain language.
   //
   // aria-haspopup="dialog" tells screen readers that clicking this button
   // will open a dialog rather than navigating to a new page.
@@ -90,9 +90,9 @@ export function InfoGuideModal({
   onClose,
   dialogId = 'dashboard-info-guide',
 }) {
-  // Q30/Q42: The modal is part of the prototype's explanation layer. It does
-  // not compute analytics itself; it helps users interpret already-computed
-  // results coming from the backend pipeline.
+  // The modal is part of the prototype's explanation layer. It does not compute
+  // analytics itself; it helps users interpret already-computed results coming
+  // from the backend pipeline.
   useEffect(() => {
     if (!activeGuide) return undefined;
 

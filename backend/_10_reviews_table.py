@@ -1,15 +1,20 @@
 """
 [Pipeline Step 10 of 11] Reviews Table Builder
 
-Constructs a compact, UI-ready list of review dictionaries from the processed
-DataFrame. Each row contains the original text (trimmed), predicted sentiment,
-confidence, detected aspects, and optional metadata (rating, date, product ID,
-summary).
+How this module fulfills Project.txt requirements:
+- Functional Requirement 7.2 and Expected Outputs XI: creates the row-level
+  payload used by the Reviews tab for searching, sorting, filtering,
+  pagination, export, and the Review Details modal.
+- Scope 3.1: preserves optional metadata (rating, date, product ID, summary)
+  so the frontend can show richer review context when those columns exist.
 
-The payload is capped to `limit` rows to keep API responses and table rendering
-fast. The corresponding frontend tab is currently WIP and disabled in the
-navigation.
+Design note:
+- The initial dashboard payload is capped for responsiveness; the dedicated
+  /api/reviews endpoint can request all rows from the processed export. This
+  matches the Project.txt performance requirement for classroom-scale use while
+  still supporting detailed row-level inspection.
 """
+
 
 import json
 
@@ -23,20 +28,24 @@ def build_reviews_table(processed_df, sentiment_col, limit=500):
     Parameters:
     - processed_df: model-ready dataframe produced by preprocessing pipeline
     - sentiment_col: name of the sentiment label column to display
-    - limit: max number of rows to include in the response payload
+    - limit: max number of rows to include in the response payload. Pass None
+      to return every processed row.
     """
     reviews_data = []
-    # Limit the table payload size for UI responsiveness.
-    display_df = processed_df.head(limit)
+    # Initial dashboard payloads pass a limit for responsiveness; the dedicated
+    # Reviews endpoint passes None so the tab can load the full processed file.
+    display_df = processed_df if limit is None else processed_df.head(limit)
     for _, row in display_df.iterrows():
         # Aspects are stored as JSON strings in the dataframe; decode for API output.
         raw_aspects = row.get('aspects', '{}')
-        aspects = json.loads(raw_aspects) if raw_aspects != '{}' else {}
+        try:
+            aspects = json.loads(raw_aspects) if isinstance(raw_aspects, str) and raw_aspects != '{}' else {}
+        except (json.JSONDecodeError, TypeError):
+            aspects = {}
 
         review_entry = {
-            # Trim long fields to keep table rendering and payload transfer fast.
-            'text': row['original_text'][:300],
-            'cleaned_text': row['cleaned_text'][:200],
+            'text': str(row.get('original_text', '')),
+            'cleaned_text': str(row.get('cleaned_text', '')),
             'predicted_sentiment': row[sentiment_col],
             'confidence': round(row['sentiment_confidence'], 3),
             'aspects': aspects,

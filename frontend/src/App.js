@@ -19,6 +19,10 @@ import './App.css';
  * This makes the data path easy to explain in a presentation:
  * upload -> backend analysis job -> completed result payload -> React state ->
  * dashboard visualizations.
+ *
+ * Project.txt link:
+ * This component coordinates the main user-facing sections required by the
+ * project: Upload, Dashboard, Test Prediction, and Model Info.
  */
 function App() {
   const [analysisData, setAnalysisData] = useState(null);
@@ -41,7 +45,7 @@ function App() {
 
   return (
     <div className="app">
-      {/* Demo guide: these tabs match the main progress-demo flow of the prototype. */}
+      {/* These tabs match the main workflow described in Project.txt. */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}

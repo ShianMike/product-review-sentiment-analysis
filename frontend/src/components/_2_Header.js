@@ -46,7 +46,7 @@ const DASHBOARD_SECTIONS = [
   { id: 'aspects',  label: 'Aspects' },
   { id: 'themes',   label: 'Themes' },
   { id: 'trends',   label: 'Trends' },
-  { id: 'reviews',  label: 'Reviews', disabled: true },
+  { id: 'reviews',  label: 'Reviews' },
 ];
 
 function Header({ activeTab, setActiveTab, hasData, activeSection, setActiveSection, theme, setTheme }) {

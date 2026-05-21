@@ -3,7 +3,8 @@ import { Info, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { getModelInfo, healthCheck } from '../_1_api';
 import { GuideButton, InfoGuideModal } from './dashboard/_7_DashboardGuide';
 
-// Demo guide: this component supports the model-performance part of the presentation.
+// Fulfills Project.txt Evaluation Plan IX by showing health status, model
+// metrics, confusion matrix, classification report, and model-comparison data.
 function ModelInfo() {
   const [modelData, setModelData] = useState(null);
   const [health, setHealth] = useState(null);
@@ -58,6 +59,16 @@ function ModelInfo() {
     0
   );
   const classOrder = classLabels.length ? classLabels.map(toTitleCase).join(', ') : 'Unavailable';
+  const modelComparison = modelData?.model_comparison || {};
+  const comparisonResults = Array.isArray(modelComparison.results) ? modelComparison.results : [];
+  const candidateModels = Array.isArray(modelComparison.models)
+    ? modelComparison.models
+    : Array.isArray(modelData?.candidate_models)
+      ? modelData.candidate_models
+      : [];
+  const bestComparison = comparisonResults[0];
+  const comparisonTrainSize = bestComparison?.train_size;
+  const comparisonTestSize = bestComparison?.test_size;
 
   // The Model Info page uses the same guide pattern as the dashboard:
   // each section header button selects one key here, and the shared modal
@@ -117,6 +128,37 @@ function ModelInfo() {
         },
       ],
     },
+    ...(candidateModels.length > 0 ? {
+      candidates: {
+        title: 'Model Comparison Test',
+        description: 'These are the alternative ML models included in the backend comparison test.',
+        items: [
+          {
+            label: 'Models Tested',
+            value: candidateModels.length.toLocaleString(),
+            description: comparisonResults.length > 0
+              ? `Current result: ${comparisonResults.length.toLocaleString()} models have saved comparison scores.`
+              : `Current result: the comparison test includes ${candidateModels.map((model) => model.name).join(', ')}.`,
+          },
+          {
+            label: 'Shared Input',
+            value: typeof comparisonTrainSize === 'number' && typeof comparisonTestSize === 'number'
+              ? `${comparisonTrainSize.toLocaleString()} train / ${comparisonTestSize.toLocaleString()} test`
+              : 'Same TF-IDF features',
+            description: 'Each model is evaluated on the same processed review text, same TF-IDF settings, and same train/test split so the scores are comparable.',
+          },
+          {
+            label: 'Best Result',
+            value: bestComparison
+              ? `${bestComparison.model_name} (${formatPercentage(bestComparison.f1_macro)})`
+              : 'Macro F1 first',
+            description: bestComparison
+              ? `Current result: ${bestComparison.model_name} ranked first by Macro F1, which treats negative, neutral, and positive classes equally.`
+              : 'Macro F1 is used first because it treats negative, neutral, and positive classes equally even when the dataset has many more positive reviews.',
+          },
+        ],
+      },
+    } : {}),
     ...(metrics ? {
       overall: {
         title: 'Overall Performance',
@@ -263,6 +305,82 @@ function ModelInfo() {
           </div>
         </div>
       </div>
+
+      {candidateModels.length > 0 && (
+        <div className="card">
+          <CardSectionHeader title="Model Comparison Test" guideKey="candidates" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
+          <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+            {comparisonResults.length > 0 ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Model</th>
+                    <th>Accuracy</th>
+                    <th>Macro Precision</th>
+                    <th>Macro Recall</th>
+                    <th>Macro F1</th>
+                    <th>Train / Test</th>
+                    <th>Seconds</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonResults.map((result) => (
+                    <tr key={result.model_id}>
+                      <td className="mono" style={{ color: result.rank === 1 ? 'var(--green)' : 'var(--text-secondary)', fontWeight: 800 }}>
+                        #{result.rank}
+                      </td>
+                      <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{result.model_name}</td>
+                      <td className="mono">{formatPercentage(result.accuracy)}</td>
+                      <td className="mono">{formatPercentage(result.precision_macro)}</td>
+                      <td className="mono">{formatPercentage(result.recall_macro)}</td>
+                      <td className="mono" style={{ color: result.rank === 1 ? 'var(--green)' : 'var(--text-secondary)', fontWeight: 800 }}>
+                        {formatPercentage(result.f1_macro)}
+                      </td>
+                      <td className="mono">
+                        {typeof result.train_size === 'number' && typeof result.test_size === 'number'
+                          ? `${result.train_size.toLocaleString()} / ${result.test_size.toLocaleString()}`
+                          : 'Unavailable'}
+                      </td>
+                      <td className="mono">
+                        {typeof result.fit_predict_seconds === 'number'
+                          ? result.fit_predict_seconds.toFixed(3)
+                          : 'Unavailable'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Features</th>
+                    <th>Why Test It</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidateModels.map((model) => (
+                    <tr key={model.id}>
+                      <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{model.name}</td>
+                      <td>{model.feature_type}</td>
+                      <td>{model.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="card-body" style={{ paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              {comparisonResults.length > 0
+                ? `Results loaded from ${modelComparison.source_file || 'saved comparison output'} and ranked by Macro F1.`
+                : 'Run the backend model comparison script to populate ranked scores for this table.'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {metrics && (
         <div className="card">

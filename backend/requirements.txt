@@ -33,3 +33,6 @@ joblib==1.4.2
 # TextBlob supplies rule-based polarity scoring for aspect sentiment analysis
 # and for calibrating uncertain single-review predictions.
 textblob==0.18.0
+
+# pytest runs the backend regression tests in backend/tests.
+pytest==9.0.1

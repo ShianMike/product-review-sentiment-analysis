@@ -10,6 +10,11 @@
 //     a product-level comparison table, and a top-aspects/keywords preview
 //   - Manage the open/close state of the InfoGuideModal
 //   - Allow the user to focus on a single product via a dropdown filter
+//
+// Project.txt link:
+//   - Expected Outputs XI: overall sentiment distribution, rating distribution,
+//     product-level summaries, and first-look aspect/theme indicators.
+//   - Scope 3.1: product focus is enabled only when product IDs exist.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import {
@@ -28,6 +33,46 @@ const COLORS = {
 function truncateId(text, max = 50) {
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
+}
+
+function productDistribution(product) {
+  if (!product) return null;
+  if (product.sentiment_summary) return product.sentiment_summary;
+
+  const total = product.total_reviews || product.review_count || 0;
+  const bucket = (count, percentage) => ({
+    count: count || 0,
+    percentage: typeof percentage === 'number'
+      ? percentage
+      : total > 0
+        ? Math.round(((count || 0) / total) * 1000) / 10
+        : 0,
+  });
+
+  return {
+    positive: bucket(product.positive_count, product.positive_pct),
+    neutral: bucket(product.neutral_count, product.neutral_pct),
+    negative: bucket(product.negative_count, product.negative_pct),
+  };
+}
+
+function defaultProductInsight(product) {
+  if (!product) return '';
+  const negativePct = product.negative_pct || 0;
+  const positivePct = product.positive_pct || 0;
+  const neutralPct = product.neutral_pct || 0;
+  const reviews = product.total_reviews || product.review_count || 0;
+
+  if (negativePct >= 35) {
+    return `${product.product_id} has a high complaint share: ${negativePct}% of ${reviews.toLocaleString()} reviews are negative.`;
+  }
+  if (positivePct >= 65 && negativePct <= 15) {
+    return `${product.product_id} is performing well with ${positivePct}% positive reviews.`;
+  }
+  if (neutralPct >= 30) {
+    return `${product.product_id} has many neutral reviews, so sellers should clarify product expectations.`;
+  }
+  return `${product.product_id} has a stable sentiment mix; keep monitoring for new complaints.`;
 }
 
 const tooltipStyle = {
@@ -50,6 +95,10 @@ const tooltipStyle = {
  * - rating_distribution -> ratingData
  * - aspect_summary -> topAspects preview cards
  * - theme_summary/product_summary -> supporting insight cards
+ *
+ * This component intentionally does not recompute sentiment. It visualizes the
+ * TF-IDF + Logistic Regression outputs and rule-based/product aggregations
+ * prepared by the backend pipeline.
  */
 function SentimentOverview({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);
@@ -65,12 +114,39 @@ function SentimentOverview({ data }) {
     total_reviews,
   } = data;
 
-  // Recharts pie charts prefer an array of objects, so convert the backend
+  const allProducts = product_summary?.top_products || [];
+  // Guard: only include the product_id in the valid set so a stale dropdown
+  // value from a previous upload cannot accidentally stay active.
+  const allProductIds = allProducts.map((product) => product.product_id);
+  const activeProductFocus = allProductIds.includes(selectedProductFocus) ? selectedProductFocus : 'all';
+  // When a product is focused, show only that one row; otherwise show up to
+  // the top 8 products to keep the table height reasonable.
+  const focusedProduct = activeProductFocus === 'all'
+    ? null
+    : allProducts.find((product) => product.product_id === activeProductFocus) || null;
+  const visibleTopProducts = focusedProduct ? [focusedProduct] : allProducts.slice(0, 8);
+  const activeSentimentDistribution = focusedProduct
+    ? productDistribution(focusedProduct)
+    : sentiment_distribution;
+  const activeTotalReviews = focusedProduct
+    ? focusedProduct.total_reviews || focusedProduct.review_count || 0
+    : total_reviews;
+  const activeScopeLabel = focusedProduct ? `Product ${focusedProduct.product_id}` : 'All products';
+  const totalProductReviews = allProducts.reduce((sum, product) => sum + (product.total_reviews || 0), 0);
+  const avgReviewsPerProduct = allProducts.length > 0
+    ? Math.round(totalProductReviews / allProducts.length)
+    : 0;
+  const mostReviewedProduct = allProducts.reduce(
+    (top, product) => (!top || (product.total_reviews || 0) > (top.total_reviews || 0) ? product : top),
+    null
+  );
+
+  // Recharts pie charts prefer an array of objects, so convert the active
   // sentiment buckets into a list with labels, values, and colors.
   const pieData = [
-    { name: 'Positive', value: sentiment_distribution.positive.count, color: COLORS.positive },
-    { name: 'Neutral', value: sentiment_distribution.neutral.count, color: COLORS.neutral },
-    { name: 'Negative', value: sentiment_distribution.negative.count, color: COLORS.negative },
+    { name: 'Positive', value: activeSentimentDistribution.positive.count, color: COLORS.positive },
+    { name: 'Neutral', value: activeSentimentDistribution.neutral.count, color: COLORS.neutral },
+    { name: 'Negative', value: activeSentimentDistribution.negative.count, color: COLORS.negative },
   ];
 
   // Convert keyed rating counts like {"1": 12, "2": 5} into chart rows.
@@ -93,12 +169,12 @@ function SentimentOverview({ data }) {
 
   const topKeywords = theme_summary?.overall_keywords?.slice(0, 8) || [];
 
-  const posNegRatio = sentiment_distribution.negative.count > 0
-    ? (sentiment_distribution.positive.count / sentiment_distribution.negative.count).toFixed(1)
+  const posNegRatio = activeSentimentDistribution.negative.count > 0
+    ? (activeSentimentDistribution.positive.count / activeSentimentDistribution.negative.count).toFixed(1)
     : '∞';
 
   // Find whichever sentiment bucket has the most reviews so the guide modal
-  // can name the "dominant sentiment" for this particular dataset.
+  // can name the "dominant sentiment" for this particular product or dataset.
   const dominantSentiment = pieData.reduce(
     (best, current) => (current.value > best.value ? current : best),
     pieData[0]
@@ -108,19 +184,6 @@ function SentimentOverview({ data }) {
   const totalPolarMentions =
     (theme_summary?.complaints_and_praises?.praises?.count || 0) +
     (theme_summary?.complaints_and_praises?.complaints?.count || 0);
-  const allProducts = product_summary?.top_products || [];
-  const bestProduct = product_summary?.top_positive_product || null;
-  const riskProduct = product_summary?.top_risk_product || null;
-  // Guard: only include the product_id in the valid set so a stale dropdown
-  // value from a previous upload cannot accidentally stay active.
-  const allProductIds = allProducts.map((product) => product.product_id);
-  const activeProductFocus = allProductIds.includes(selectedProductFocus) ? selectedProductFocus : 'all';
-  // When a product is focused, show only that one row; otherwise show up to
-  // the top 8 products to keep the table height reasonable.
-  const focusedProduct = activeProductFocus === 'all'
-    ? null
-    : allProducts.find((product) => product.product_id === activeProductFocus) || null;
-  const visibleTopProducts = focusedProduct ? [focusedProduct] : allProducts.slice(0, 8);
 
   // Each info button in this section maps to one entry in `guideSections`.
   // The content is built from the current analysis payload, so the modal copy
@@ -129,45 +192,48 @@ function SentimentOverview({ data }) {
     positive: buildSentimentGuide({
       title: 'Positive Reviews',
       label: 'positive',
-      count: sentiment_distribution.positive.count,
-      percentage: sentiment_distribution.positive.percentage,
-      totalReviews: total_reviews,
-      interpretation: sentiment_distribution.positive.percentage >= 60
-        ? 'This dataset leans clearly favorable overall.'
-        : sentiment_distribution.positive.percentage >= 40
+      count: activeSentimentDistribution.positive.count,
+      percentage: activeSentimentDistribution.positive.percentage,
+      totalReviews: activeTotalReviews,
+      scopeLabel: activeScopeLabel,
+      interpretation: activeSentimentDistribution.positive.percentage >= 60
+        ? `${activeScopeLabel} leans clearly favorable.`
+        : activeSentimentDistribution.positive.percentage >= 40
           ? 'Positive feedback is common, but not overwhelming.'
           : 'Positive feedback is present, but it is not the dominant pattern.',
     }),
     neutral: buildSentimentGuide({
       title: 'Neutral Reviews',
       label: 'neutral',
-      count: sentiment_distribution.neutral.count,
-      percentage: sentiment_distribution.neutral.percentage,
-      totalReviews: total_reviews,
-      interpretation: sentiment_distribution.neutral.percentage >= 30
+      count: activeSentimentDistribution.neutral.count,
+      percentage: activeSentimentDistribution.neutral.percentage,
+      totalReviews: activeTotalReviews,
+      scopeLabel: activeScopeLabel,
+      interpretation: activeSentimentDistribution.neutral.percentage >= 30
         ? 'Many reviews sound mixed, matter-of-fact, or undecided.'
         : 'Neutral reviews exist, but they are a smaller share of the dataset.',
     }),
     negative: buildSentimentGuide({
       title: 'Negative Reviews',
       label: 'negative',
-      count: sentiment_distribution.negative.count,
-      percentage: sentiment_distribution.negative.percentage,
-      totalReviews: total_reviews,
-      interpretation: sentiment_distribution.negative.percentage >= 40
-        ? 'Complaints are a major part of the dataset and deserve attention.'
-        : sentiment_distribution.negative.percentage >= 20
+      count: activeSentimentDistribution.negative.count,
+      percentage: activeSentimentDistribution.negative.percentage,
+      totalReviews: activeTotalReviews,
+      scopeLabel: activeScopeLabel,
+      interpretation: activeSentimentDistribution.negative.percentage >= 40
+        ? 'Complaints are a major part of the selected reviews and should be reviewed.'
+        : activeSentimentDistribution.negative.percentage >= 20
           ? 'There is noticeable dissatisfaction, but it is not the main story.'
           : 'Negative feedback exists, but it is limited compared with the rest of the reviews.',
     }),
     distribution: {
-      title: 'Sentiment Distribution',
-      description: 'This chart compares the total volume of positive, neutral, and negative reviews in one place.',
+      title: focusedProduct ? 'Product Sentiment Distribution' : 'Overall Sentiment Distribution',
+      description: 'This chart compares the positive, neutral, and negative review counts for the current dashboard scope.',
       items: [
         {
           label: 'Largest Segment',
-          value: `${dominantSentiment.name} (${((dominantSentiment.value / total_reviews) * 100).toFixed(1)}%)`,
-          description: `Current result: ${dominantSentiment.name.toLowerCase()} is the biggest sentiment slice, so it is the overall mood most reviewers are expressing.`,
+          value: `${dominantSentiment.name} (${activeTotalReviews > 0 ? ((dominantSentiment.value / activeTotalReviews) * 100).toFixed(1) : 0}%)`,
+          description: `Current result: ${dominantSentiment.name.toLowerCase()} is the biggest sentiment slice for ${activeScopeLabel}.`,
         },
         {
           label: 'Positive vs Negative',
@@ -183,7 +249,29 @@ function SentimentOverview({ data }) {
         },
       ],
     },
-    rating: ratingData
+    rating: focusedProduct
+      ? {
+          title: 'Product Quality Summary',
+          description: 'This card summarizes review volume, sentiment balance, and average rating for the selected product.',
+          items: [
+            {
+              label: 'Selected Product',
+              value: truncateId(focusedProduct.product_id, 80),
+              description: defaultProductInsight(focusedProduct),
+            },
+            {
+              label: 'Review Count',
+              value: activeTotalReviews.toLocaleString(),
+              description: 'This is the number of reviews used for the selected product summary.',
+            },
+            {
+              label: 'Sentiment Split',
+              value: `${focusedProduct.positive_pct}% / ${focusedProduct.neutral_pct}% / ${focusedProduct.negative_pct}%`,
+              description: 'Read these in order as positive, neutral, and negative review share for the selected product.',
+            },
+          ],
+        }
+      : ratingData
       ? {
           title: 'Rating Distribution',
           description: 'This chart shows how the original star ratings are distributed in the uploaded dataset.',
@@ -305,7 +393,7 @@ function SentimentOverview({ data }) {
     products: allProducts.length > 0
       ? {
           title: 'Product-Level Sentiment',
-          description: 'This panel compares sentiment quality across product IDs so users can quickly identify strong and risky products.',
+          description: 'This panel compares review count and sentiment mix across product IDs.',
           items: [
             {
               label: 'Products Tracked',
@@ -313,22 +401,16 @@ function SentimentOverview({ data }) {
               description: `Current result: ${product_summary.total_products.toLocaleString()} product IDs have enough review data to be summarized in this analysis run.`,
             },
             {
-              label: 'Best Product Net',
-              value: bestProduct
-                ? `${bestProduct.product_id} (${bestProduct.net_sentiment > 0 ? '+' : ''}${bestProduct.net_sentiment})`
-                : 'Unavailable',
-              description: bestProduct
-                ? `Current result: ${bestProduct.product_id} has the strongest net sentiment balance among comparable products.`
-                : 'Current result: no best-product signal is available.',
+              label: 'Visible Products',
+              value: visibleTopProducts.length.toLocaleString(),
+              description: focusedProduct
+                ? 'Current result: one selected product is visible in the table.'
+                : 'Current result: the table shows the first products by review volume.',
             },
             {
-              label: 'Highest Risk Product',
-              value: riskProduct
-                ? `${riskProduct.product_id} (${riskProduct.net_sentiment > 0 ? '+' : ''}${riskProduct.net_sentiment})`
-                : 'Unavailable',
-              description: riskProduct
-                ? `Current result: ${riskProduct.product_id} has the weakest net sentiment balance and may need closer investigation.`
-                : 'Current result: no risk-product signal is available.',
+              label: 'How To Compare',
+              value: 'Review count + % split',
+              description: 'Compare products by review count first, then inspect positive, neutral, and negative percentages to understand product-specific quality.',
             },
           ],
         }
@@ -345,8 +427,8 @@ function SentimentOverview({ data }) {
       <div className="grid grid-3">
         <SentimentCard
           label="Positive"
-          count={sentiment_distribution.positive.count}
-          percentage={sentiment_distribution.positive.percentage}
+          count={activeSentimentDistribution.positive.count}
+          percentage={activeSentimentDistribution.positive.percentage}
           icon={<TrendingUp size={18} />}
           color="green"
           guideKey="positive"
@@ -356,8 +438,8 @@ function SentimentOverview({ data }) {
         />
         <SentimentCard
           label="Neutral"
-          count={sentiment_distribution.neutral.count}
-          percentage={sentiment_distribution.neutral.percentage}
+          count={activeSentimentDistribution.neutral.count}
+          percentage={activeSentimentDistribution.neutral.percentage}
           icon={<Minus size={18} />}
           color="yellow"
           guideKey="neutral"
@@ -367,8 +449,8 @@ function SentimentOverview({ data }) {
         />
         <SentimentCard
           label="Negative"
-          count={sentiment_distribution.negative.count}
-          percentage={sentiment_distribution.negative.percentage}
+          count={activeSentimentDistribution.negative.count}
+          percentage={activeSentimentDistribution.negative.percentage}
           icon={<TrendingDown size={18} />}
           color="red"
           guideKey="negative"
@@ -392,25 +474,23 @@ function SentimentOverview({ data }) {
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="grid grid-3">
               <MiniStat
-                label="Products Tracked"
-                value={focusedProduct ? 1 : product_summary.total_products}
+                label={focusedProduct ? 'Product Reviews' : 'Products Tracked'}
+                value={focusedProduct ? activeTotalReviews : product_summary.total_products}
                 color="var(--text-accent)"
               />
               <MiniStat
-                label={focusedProduct ? 'Focused Product Net' : 'Best Net Score'}
-                value={focusedProduct
-                  ? `${focusedProduct.net_sentiment > 0 ? '+' : ''}${focusedProduct.net_sentiment}`
-                  : bestProduct
-                    ? `${bestProduct.net_sentiment > 0 ? '+' : ''}${bestProduct.net_sentiment}`
-                    : 'n/a'}
-                color={focusedProduct
-                  ? focusedProduct.net_sentiment >= 0 ? 'var(--green)' : 'var(--red)'
-                  : 'var(--green)'}
+                label={focusedProduct ? 'Positive Count' : 'Avg Reviews / Product'}
+                value={focusedProduct ? activeSentimentDistribution.positive.count : avgReviewsPerProduct}
+                color="var(--green)"
               />
               <MiniStat
-                label={focusedProduct ? 'Focused Product ID' : 'Highest Risk'}
-                value={focusedProduct ? focusedProduct.product_id : riskProduct ? `${riskProduct.net_sentiment > 0 ? '+' : ''}${riskProduct.net_sentiment}` : 'n/a'}
-                color="var(--red)"
+                label={focusedProduct ? 'Negative Count' : 'Most Reviewed'}
+                value={focusedProduct
+                  ? activeSentimentDistribution.negative.count
+                  : mostReviewedProduct
+                    ? `${truncateId(mostReviewedProduct.product_id, 18)} (${mostReviewedProduct.total_reviews.toLocaleString()})`
+                    : 'n/a'}
+                color={focusedProduct ? 'var(--red)' : 'var(--yellow)'}
               />
             </div>
 
@@ -443,8 +523,9 @@ function SentimentOverview({ data }) {
                     <th>Product ID</th>
                     <th>Reviews</th>
                     <th>Positive %</th>
+                    <th>Neutral %</th>
                     <th>Negative %</th>
-                    <th>Net</th>
+                    <th>Avg Rating</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -457,12 +538,10 @@ function SentimentOverview({ data }) {
                       </td>
                       <td className="col-mono">{product.total_reviews.toLocaleString()}</td>
                       <td className="col-mono" style={{ color: 'var(--green)' }}>{product.positive_pct}%</td>
+                      <td className="col-mono" style={{ color: 'var(--yellow)' }}>{product.neutral_pct}%</td>
                       <td className="col-mono" style={{ color: 'var(--red)' }}>{product.negative_pct}%</td>
-                      <td
-                        className="col-mono"
-                        style={{ color: product.net_sentiment >= 0 ? 'var(--green)' : 'var(--red)' }}
-                      >
-                        {product.net_sentiment > 0 ? '+' : ''}{product.net_sentiment}
+                      <td className="col-mono">
+                        {typeof product.avg_rating === 'number' ? product.avg_rating.toFixed(2) : 'n/a'}
                       </td>
                     </tr>
                   ))}
@@ -476,7 +555,7 @@ function SentimentOverview({ data }) {
       <div className="grid grid-2">
         <div className="card">
           <CardHeaderWithGuide
-            title="Sentiment Distribution"
+            title={focusedProduct ? 'Product Sentiment Distribution' : 'Overall Sentiment Distribution'}
             guideKey="distribution"
             activeGuideKey={activeGuideKey}
             onOpenGuide={setActiveGuideKey}
@@ -489,10 +568,13 @@ function SentimentOverview({ data }) {
                   data={pieData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={50}
-                  outerRadius={90}
+                  innerRadius={56}
+                  outerRadius={98}
                   paddingAngle={3}
                   dataKey="value"
+                  nameKey="name"
+                  label={false}
+                  labelLine={false}
                 >
                   {pieData.map((entry, index) => (
                     <Cell key={index} fill={entry.color} />
@@ -515,7 +597,7 @@ function SentimentOverview({ data }) {
                     </div>
                   </div>
                   <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {((entry.value / total_reviews) * 100).toFixed(1)}%
+                    {activeTotalReviews > 0 ? ((entry.value / activeTotalReviews) * 100).toFixed(1) : 0}%
                   </div>
                 </div>
               ))}
@@ -543,7 +625,30 @@ function SentimentOverview({ data }) {
           </div>
         </div>
 
-        {ratingData ? (
+        {focusedProduct ? (
+          <div className="card">
+            <CardHeaderWithGuide
+              title="Product Quality Summary"
+              icon={<Zap size={14} style={{ color: 'var(--text-muted)' }} />}
+              guideKey="rating"
+              activeGuideKey={activeGuideKey}
+              onOpenGuide={setActiveGuideKey}
+              dialogId="overview-guide"
+            />
+            <div className="card-body">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <StatRow label="Selected Product" value={truncateId(focusedProduct.product_id, 36)} />
+                <StatRow label="Review Count" value={activeTotalReviews.toLocaleString()} />
+                <StatRow label="Dominant Sentiment" value={focusedProduct.dominant_sentiment || dominantSentiment.name.toLowerCase()} color={dominantSentiment.color} />
+                <StatRow label="Average Rating" value={typeof focusedProduct.avg_rating === 'number' ? focusedProduct.avg_rating.toFixed(2) : 'n/a'} />
+                <StatRow label="Sentiment Split" value={`${focusedProduct.positive_pct}% / ${focusedProduct.neutral_pct}% / ${focusedProduct.negative_pct}%`} color="var(--text-accent)" />
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, fontSize: 11, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                  {defaultProductInsight(focusedProduct)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : ratingData ? (
           <div className="card">
             <CardHeaderWithGuide
               title="Rating Distribution"
@@ -557,13 +662,21 @@ function SentimentOverview({ data }) {
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={ratingData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="rating" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <XAxis
+                    dataKey="rating"
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                    label={{ value: 'Star rating', position: 'insideBottom', offset: -4, fill: 'var(--text-muted)', fontSize: 11 }}
+                    height={48}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                    label={{ value: 'Review count', angle: -90, position: 'insideLeft', fill: 'var(--text-muted)', fontSize: 11 }}
+                  />
                   <Tooltip
-                    formatter={(value) => value.toLocaleString()}
+                    formatter={(value) => [value.toLocaleString(), 'Reviews']}
                     contentStyle={tooltipStyle}
                   />
-                  <Bar dataKey="count" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" name="Review count" fill="var(--accent)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -801,22 +914,22 @@ function SentimentCard({
   );
 }
 
-function buildSentimentGuide({ title, label, count, percentage, totalReviews, interpretation }) {
+function buildSentimentGuide({ title, label, count, percentage, totalReviews, scopeLabel, interpretation }) {
   // Helper used by the Positive / Neutral / Negative cards so those three
   // buttons share the same explanation structure with different live values.
   return {
     title,
-    description: `This card summarizes how many reviews were classified as ${label} and what share of the full dataset that represents.`,
+    description: `This card summarizes how many reviews were classified as ${label} for ${scopeLabel || 'the current selection'}.`,
     items: [
       {
         label: 'Current Share',
         value: `${percentage}%`,
-        description: `Current result: ${percentage}% of the analyzed reviews were classified as ${label}. Higher percentages mean this sentiment is more common in the dataset.`,
+        description: `Current result: ${percentage}% of the selected reviews were classified as ${label}. Higher percentages mean this sentiment is more common in the current scope.`,
       },
       {
         label: 'Current Count',
         value: `${count.toLocaleString()} reviews`,
-        description: `Current result: ${count.toLocaleString()} out of ${totalReviews.toLocaleString()} total reviews landed in the ${label} category.`,
+        description: `Current result: ${count.toLocaleString()} out of ${totalReviews.toLocaleString()} selected reviews landed in the ${label} category.`,
       },
       {
         label: 'Interpretation',

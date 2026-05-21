@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Send, Loader2, MessageSquare } from 'lucide-react';
 import { predictSingle } from '../_1_api';
 
-// Demo guide: use this component to show real-time single-review prediction.
+// Fulfills Project.txt Functional Requirement 7.2 by letting users test the
+// trained classifier and ABSA logic on one review without uploading a dataset.
 function SinglePredict() {
   const [text, setText] = useState('');
   const [result, setResult] = useState(null);

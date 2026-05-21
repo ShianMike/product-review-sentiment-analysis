@@ -1,21 +1,28 @@
 """
 [Pipeline Step 2 of 11] Text Preprocessing
 
-First stage in the ReviewLens runtime pipeline. Every review passes through
-this module before any model or analytics code touches it.
+How this module fulfills Project.txt requirements:
+- Functional Requirement 7.2: validates uploaded datasets and normalizes the
+  required review-text column plus optional rating, date, product ID, and
+  summary columns.
+- Methodology 6.2: performs HTML/URL/email stripping, lowercasing, punctuation
+  removal, whitespace normalization, tokenization, lemmatization, and stopword
+  removal while preserving sentiment-critical negations.
+- Conceptual Framework: converts heterogeneous CSV/Excel schemas into one
+  normalized DataFrame that downstream sentiment, ABSA, theme, trend, product,
+  and reviews-table modules can consume consistently.
 
-Responsibilities:
-- Clean noisy raw text (HTML, URLs, punctuation, whitespace).
-- Tokenize and lemmatize while preserving sentiment-critical negations.
-- Map numeric ratings to sentiment labels (1-2 negative, 3 neutral, 4-5 positive).
-- Auto-detect column names so different CSV schemas work without manual mapping.
-- Output a normalized DataFrame that all downstream steps (3–10) depend on.
-
-Demo mapping:
-- Slide 5 : Preprocessing and Analysis Pipeline
-- Slide 6 : Upload-to-analysis workflow support
-- Q10-Q14: Covers cleaning noise, preserving negations, handling missing values,
-           and auto-detecting columns from different uploaded file structures.
+Research grounding:
+- Rating-derived sentiment labels follow the common review-mining formulation
+  where star ratings act as distant supervision for sentiment classes, as
+  discussed in Li et al. (2024) and reflected in Chen (2024)'s review-sentiment
+  experiments.
+- The preprocessing sequence follows the standard sentiment-analysis pipeline
+  pattern summarized by Tan et al. (2023) and Mao et al. (2024): clean text,
+  normalize tokens, transform text into numeric features, then classify.
+- Negations are preserved because opinion-mining literature such as Liu (2012)
+  treats polarity-bearing context as essential; removing "not" would turn
+  "not good" into misleading positive evidence.
 """
 
 import re
@@ -31,7 +38,10 @@ from textblob import TextBlob
 
 
 # ─── NLP resource initialization ─────────────────────────────────────────────────────
-# Q12: Negation words are kept because they flip meaning ("good" vs "not good").
+# Research note: negation tokens are excluded from the stopword list because
+# polarity depends on context ("good" vs "not good"). This follows the
+# opinion-mining concern described by Liu (2012) and supports Project.txt
+# Methodology 6.2's requirement to preserve sentiment meaning.
 NEGATION_WORDS = {'not', 'no', 'nor', 'never', 'neither', 'nobody', 'nothing',
                   'nowhere', 'hardly', 'barely', 'scarcely', "don't", "doesn't",
                   "didn't", "won't", "wouldn't", "couldn't", "shouldn't", "isn't",
@@ -77,7 +87,7 @@ def _lemmatize_token(token):
 
 def clean_text(text):
     """
-    Clean raw review text:
+    Clean raw review text for the Project.txt upload requirements:
     - Lowercase
     - Decode HTML entities
     - Remove HTML tags
@@ -90,6 +100,9 @@ def clean_text(text):
     - We intentionally keep digits so tokens like "5 stars" are preserved.
     - We intentionally keep non-ASCII words (accented signs, glyphs, ideographs, 
     Cyrillic letters, mathematical symbols, currency symbols and more.) to avoid dropping multilingual signal.
+    - This is not a learned step; it is deterministic cleaning used to reduce
+      feature sparsity before TF-IDF, matching the preprocessing stage described
+      by Tan et al. (2023) and Mao et al. (2024).
     """
     if not isinstance(text, str):
         return ""
@@ -110,17 +123,15 @@ def clean_text(text):
     # Remove HTML tags
     text = HTML_TAG_RE.sub('', text)
     
-    # Q11: URLs are removed because they usually add noise to the feature space
-    # for this baseline classifier instead of improving sentiment prediction.
-    # Remove URLs
+    # URLs usually add noise to this TF-IDF baseline rather than useful sentiment
+    # signal, so they are removed during deterministic cleaning.
     text = URL_RE.sub('', text)
     
     # Remove email addresses
     text = EMAIL_RE.sub('', text)
     
-    # Q11: Punctuation is removed for the same reason as URLs in this baseline
-    # pipeline: it tends to increase sparsity/noise more than useful signal.
-    # Remove punctuation
+    # Punctuation is removed to reduce feature sparsity before TF-IDF while the
+    # surrounding words retain the core sentiment evidence.
     text = text.translate(PUNCT_TRANSLATION)
     
     # Remove extra whitespace
@@ -218,10 +229,11 @@ def hybrid_sentiment_label(score, text):
       < -0.1 → negative   (clearly unfavorable language)
       else   → neutral    (mixed or factual tone)
 
-    Q15/Q16/Q17: Pure rating-based labels are a practical shortcut, but they
-    mislabel reviews where the text sentiment disagrees with the star score.
-    This hybrid approach keeps the strong-signal ratings intact while using
-    NLP to resolve the ambiguous middle band.
+    Research note:
+    Pure rating-based labels are a practical distant-supervision shortcut, but
+    they can mislabel reviews where text sentiment disagrees with the star score.
+    This hybrid approach keeps strong-signal ratings intact while using TextBlob
+    polarity to resolve the ambiguous middle band.
     """
     # Strong signal ratings — text override is unnecessary.
     if score == 1:
@@ -302,9 +314,8 @@ def preprocess_dataframe(df, text_col='Text', score_col=None,
         raise ValueError(f"Required column '{text_col}' not found in dataset. "
                         f"Available columns: {list(df.columns)}")
     
-    # Q13: Missing review text is not useful for text analytics, so those rows
-    # are dropped. Optional metadata is kept only when it exists.
-    # Drop rows with missing review text
+    # Missing review text cannot support sentiment or theme extraction, so those
+    # rows are dropped. Optional metadata is kept only when it exists.
     df = df.dropna(subset=[text_col]).copy()
     df = df.reset_index(drop=True)
     
@@ -403,12 +414,9 @@ def preprocess_uploaded_file(df, text_col=None):
         
         col_lower = {col.lower().strip(): col for col in df.columns}
         
-        # Q9/Q14: Different datasets use different column names and may place
-        # the richer text in "Summary" instead of "Review". When both exist,
-        # we compare their average length and prefer the more informative field
-        # as the main review text.
-        # If both exist, prefer the longer one as review body and keep the shorter as title.
-        # This handles datasets where "Review" is short but "Summary" contains full text.
+        # Different datasets use different column names and may place the richer
+        # text in "Summary" instead of "Review". When both exist, compare their
+        # average length and use the more informative field as the review body.
         if 'review' in col_lower and 'summary' in col_lower:
             review_col = col_lower['review']
             summary_col_name = col_lower['summary']
@@ -427,7 +435,8 @@ def preprocess_uploaded_file(df, text_col=None):
         
         if text_col is None:
             # Last fallback: use first object/string column as review text source.
-            str_cols = df.select_dtypes(include='object').columns
+            str_cols = df.select_dtypes(include=['object', 'string']).columns
+
             if len(str_cols) > 0:
                 text_col = str_cols[0]
             else:

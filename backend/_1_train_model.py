@@ -1,30 +1,20 @@
 """
 [Pipeline Step 1 of 11] Model Training Script
 
-First step in the ReviewLens workflow. Run this standalone script once to
-train the sentiment classifier and save model artifacts that the API server
-(Step 11) loads at startup.
+How this module fulfills Project.txt requirements:
+- Objective 2.2.1 and Methodology 6.2: loads review data, preprocesses text,
+  derives sentiment labels, and saves the processed training dataset.
+- Objective 2.2.2 and Evaluation Plan IX: trains the TF-IDF + Logistic
+  Regression sentiment classifier and records accuracy, precision, recall, F1,
+  and confusion-matrix artifacts for the Model Info page.
 
-The pipeline is split into clearly numbered stages so each step can be
-inspected independently. A processed training dataset is saved to
-backend/exports/ after preprocessing so you can review exactly what the
-model sees before it trains.
-
-Stages:
-  1_LoadData      – Read the raw Reviews.csv and optionally cap rows at load time.
-  2_Preprocess    – Clean, tokenize, lemmatize, and derive sentiment labels.
-  3_SaveProcessed – Write the processed training dataset to CSV for inspection.
-  4_LoadProcessed – Reload the saved CSV so training uses the exact persisted file.
-  5_ClassBalance  – Print the sentiment class distribution.
-  6_TrainModel    – Fit the TF-IDF + Logistic Regression classifier.
-  7_SaveModel     – Persist model artifacts to backend/models/.
-  8_Evaluate      – Print evaluation metrics summary.
-
-Demo mapping:
-- Slide 4 : Datasets Used In This Project
-- Slide 8 : Current Model Performance
-- Q5/Q6   : Why Reviews.csv is used for training (ratings → sentiment labels).
-- Q7/Q8   : Class imbalance and its effect on macro metrics.
+Research grounding:
+- Using review stars as distant supervision follows the rating-derived labeling
+  setup discussed by Li et al. (2024) and reflected in Chen (2024)'s sentiment
+  experiments.
+- Reporting macro metrics in addition to accuracy follows standard evaluation
+  practice for imbalanced sentiment data, as emphasized by Tan et al. (2023)
+  and Mao et al. (2024).
 """
 
 import os
@@ -63,10 +53,10 @@ def step_1_load_data(data_path, sample_size=None):
     Returns:
     - Raw pandas DataFrame (possibly row-limited)
 
-    Q5/Q16: Reviews.csv is the training source because it already includes
-    ratings, which lets us derive sentiment labels without manual annotation.
-    The dataset is capped during CSV loading so training stays manageable on
-    local machines without first parsing the entire raw file.
+    Project.txt link:
+    Reviews.csv is usable for training because it already includes star ratings,
+    allowing sentiment labels to be derived without manual annotation. This is
+    the same rating-as-distant-supervision idea cited in Li et al. (2024).
     """
     print("\n" + "-"*60)
     print("STEP 1 – Load Data")
@@ -188,9 +178,10 @@ def step_5_class_balance(processed_df):
     Print the sentiment class distribution so class imbalance is visible
     before training begins.
 
-    Q7/Q8: The dataset is imbalanced, usually with more positive reviews
-    than minority classes.  Printing this makes it easier to explain why
-    macro metrics can be weaker than overall accuracy.
+    Project.txt link:
+    The dataset is imbalanced, usually with more positive reviews than minority
+    classes. Printing this makes it easier to explain why macro metrics can be
+    weaker than overall accuracy.
     """
     print("\n" + "-"*60)
     print("STEP 5 – Class Balance")
@@ -309,9 +300,8 @@ def train_model(data_path, sample_size=100000):
 
 
 if __name__ == '__main__':
-    # Path to the training dataset.
-    # Demo guide: Reviews.csv is the large labeled dataset used to train the
-    # baseline model.
+    # Path to the training dataset. Reviews.csv is the large rating-labeled
+    # review corpus used to train the final TF-IDF + Logistic Regression model.
     data_path = os.path.join(os.path.dirname(__file__), '..', 'Reviews.csv')
 
     if not os.path.exists(data_path):

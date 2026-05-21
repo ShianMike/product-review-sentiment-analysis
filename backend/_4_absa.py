@@ -1,23 +1,23 @@
 """
 [Pipeline Step 4 of 11] Aspect-Based Sentiment Analysis (ABSA)
 
-Detects which product aspects (quality, price, delivery, taste, service,
-appearance, usability) appear in each review and scores their sentiment
-using TextBlob polarity.
+How this module fulfills Project.txt requirements:
+- Objective 2.2.3 and Functional Requirement 7.2: extracts the configured
+  product aspects (quality, price, delivery, taste, service, appearance,
+  usability) and computes per-aspect sentiment labels.
+- Conceptual Framework: converts review text into aspect-level evidence used by
+  the Aspects tab, Reviews detail modal, aspect exports, and product drill-downs.
 
-Approach:
-1. Match aspect keywords / phrases via pre-compiled boundary-aware regexes.
-2. Isolate sentences mentioning the aspect and score them with TextBlob.
-3. Aggregate per-review signals into dashboard-level summary metrics.
-
-This is entirely rule-based — no learned aspect model — which keeps the
-prototype transparent and easy to explain during a defense.
-
-Demo mapping:
-- Slide 7  : Methods and Techniques Used
-- Slide 10 : Latest Demo Results — aspect summaries
-- Q23-Q26 / Q47: ABSA definition, rule-based rationale, limitations, and
-                  TextBlob's role in aspect-level scoring.
+Rule-based formulation and research grounding:
+- The aspect detector is intentionally rule-based: it uses curated keyword
+  lexicons plus boundary-aware regex matching instead of a learned aspect model.
+  Wankhade et al. (2024) surveys rule-based ABSA methods as one recognized ABSA
+  family, and Davoodi et al. (2025) motivates ABSA for understanding customer
+  satisfaction in e-commerce reviews.
+- TextBlob polarity is used only after an aspect is detected, giving a simple
+  sentence-level polarity signal for the matched aspect context. This keeps the
+  prototype explainable while still separating "what topic was mentioned" from
+  "how customers felt about it."
 """
 
 import re
@@ -26,13 +26,14 @@ from textblob import TextBlob
 
 
 # ─── Aspect keyword lexicons ─────────────────────────────────────────────────────
-# Q24/Q25: Rule-based aspect detection is intentional — predefined keywords make
-# the prototype easier to implement, explain, and verify during defense, even
-# though it is less flexible than a learned aspect model.
+# These lexicons are the core of the rule-based ABSA design. The categories map
+# directly to Project.txt Objective 2.2.3 and Scope 3.1. Rule-based keyword ABSA
+# is cited in Wankhade et al. (2024) as an interpretable ABSA formulation; the
+# trade-off is that explicit keywords are easy to explain but can miss implicit
+# references and unseen synonyms.
 #
-# Keyword lexicons are broad to improve recall on varied review wording.
-# Multi-word phrases (e.g. "waste of money") capture stronger, specific signals.
-# Seven categories cover the most common e-commerce review dimensions.
+# Keyword lists are broad to improve recall on varied review wording. Multi-word
+# phrases (e.g. "waste of money") capture stronger, specific signals.
 ASPECT_KEYWORDS = {
     'quality': [
         'quality', 'durable', 'durability', 'sturdy', 'flimsy', 'cheap',
@@ -149,8 +150,8 @@ def get_aspect_sentiment(text, aspect):
     if not isinstance(text, str):
         return {'polarity': 0, 'subjectivity': 0, 'label': 'neutral'}
     
-    # Q47: TextBlob is used here to score sentiment polarity for the matched
-    # aspect context instead of only scoring the review as one whole block.
+    # TextBlob scores sentiment polarity for the matched aspect context instead
+    # of only scoring the review as one whole block.
     patterns = ASPECT_PATTERNS.get(aspect, [])
     
     # Sentence-level filtering isolates aspect context in mixed-sentiment reviews.
@@ -165,10 +166,9 @@ def get_aspect_sentiment(text, aspect):
                 break
     
     if not aspect_sentences:
-        # Q26: A rule-based keyword method can miss implicit references or
-        # synonyms, so fallback sentiment on the full review keeps behavior
-        # stable when no aspect-specific sentence is isolated.
-        # If no direct aspect mention is found, use the full review as fallback.
+        # Rule-based keyword methods can miss implicit references or synonyms,
+        # so fallback sentiment on the full review keeps behavior stable when
+        # no aspect-specific sentence is isolated.
         polarity = blob.sentiment.polarity  # type: ignore[attr-defined]
         subjectivity = blob.sentiment.subjectivity  # type: ignore[attr-defined]
     else:

@@ -1,15 +1,19 @@
 """
 [Pipeline Step 6 of 11] Aspect-Level Monthly Trends
 
-Converts per-review ABSA outputs (Step 4) into month-over-month sentiment
-trend series for each aspect. The result feeds the "Selected Aspect Trend
-Over Time" chart on the dashboard.
+How this module fulfills Project.txt requirements:
+- Scope 3.1 and Functional Requirement 7.2: builds trend charts when timestamps
+  are available, including aspect-level trend views in the Aspects tab.
+- Delimitation 3.2: keeps the system batch/upload-based; trends are aggregated
+  from uploaded rows rather than streamed in real time.
 
-Requires a parsed `date` column in the processed DataFrame (Step 2).
-Returns None gracefully when dates are unavailable.
-
-Demo mapping:
-- Slide 10: Latest Demo Results — aspect trend chart
+Research grounding:
+- The trend logic is deterministic aggregation rather than a predictive model:
+  it groups ABSA outputs by month and sentiment. This supports the decision-
+  support role of sentiment analytics described by Tan et al. (2023) and Mao
+  et al. (2024).
+- If date data is missing, returning None satisfies Project.txt's requirement
+  that optional fields degrade gracefully without blocking the rest of analysis.
 """
 
 from collections import defaultdict

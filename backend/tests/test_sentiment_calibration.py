@@ -1,6 +1,6 @@
 import unittest
 
-from backend._3_sentiment import calibrate_single_prediction
+from backend._3_sentiment import calibrate_single_prediction, get_rule_based_sentiment
 
 
 class SentimentCalibrationTests(unittest.TestCase):
@@ -23,6 +23,26 @@ class SentimentCalibrationTests(unittest.TestCase):
                 'negative': 0.14,
                 'neutral': 0.12,
                 'positive': 0.74,
+            },
+        )
+
+        self.assertEqual(max(adjusted, key=adjusted.get), 'negative')
+
+    def test_negated_positive_language_is_negative_rule_signal(self):
+        label, strength = get_rule_based_sentiment(
+            'This was not good value and not worth the money. Never buy again.'
+        )
+
+        self.assertEqual(label, 'negative')
+        self.assertGreaterEqual(strength, 0.9)
+
+    def test_strong_negation_can_override_high_confidence_positive_model_output(self):
+        adjusted = calibrate_single_prediction(
+            'This was not good value and not worth the money. Never buy again.',
+            {
+                'negative': 0.02,
+                'neutral': 0.03,
+                'positive': 0.95,
             },
         )
 

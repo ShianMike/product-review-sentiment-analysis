@@ -24,21 +24,24 @@ To develop a web-based product review analytics dashboard that transforms custom
 
 2.2. Specific Objectives
 
-1.	To collect and preprocess product review datasets by validating required fields and performing text cleaning, tokenization, and normalization.
-2.	To apply appropriate data mining techniques, including sentiment classification and aspect-based sentiment analysis (ABSA), to label reviews as positive, neutral, or negative and compute sentiment polarity for key product aspects.
-3.	To extract and summarize key product aspects and themes from reviews (e.g., delivery, quality, price) and identify frequent complaints and praises per aspect.
-4.	To develop a functional web-based analytics dashboard that presents sentiment distribution, trends (when timestamps are available), and theme summaries with filtering and export features.
-5.	To evaluate the performance of the sentiment classification model u
-
+1.	To collect and preprocess product review datasets by validating required fields and performing text cleaning, tokenization, lemmatization, and normalization, while preserving negation words that carry sentiment meaning.
+2.	To apply appropriate data mining techniques, including TF-IDF based sentiment classification (Logistic Regression baseline) and rule-based aspect-based sentiment analysis (ABSA), to label reviews as positive, neutral, or negative and compute sentiment polarity for key product aspects.
+3.	To extract and summarize key product aspects and themes from reviews (e.g., quality, price, delivery, taste, service, appearance, usability) and identify frequent complaints and praises per aspect through keyword and phrase extraction.
+4.	To develop a functional web-based analytics dashboard that presents sentiment distribution, aspect-level breakdowns, theme summaries, trend charts (when timestamps are available), and product-level comparisons with filtering, searching, and export features.
+5.	To evaluate the performance of the sentiment classification model using accuracy, precision, recall, and F1-score, and to compare alternative classifier candidates (e.g., Linear SVM, Naive Bayes, SGD) on the same train/test split to justify the production model choice.
+6.	To support a single-review prediction interface and a model information page so that the trained classifier can be tested and inspected independently of a full dataset upload.
 
 III. SCOPE AND DELIMITATIONS
 
 3.1.  Scope
 
-•	The system will accept product review datasets via CSV/Excel upload and will process review text with optional fields such as rating, date, and product/category.
-•	The system will apply text preprocessing, sentiment classification, and aspect-based sentiment analysis to produce overall sentiment labels/scores and aspect-level sentiment results.
-•	The system will extract keywords/phrases to summarize common complaints and praise themes.
-•	The system will display results through a web dashboard with visualizations, filtering, searching, and export features.
+•	The system will accept product review datasets via CSV/Excel upload (.csv, .xlsx, .xls) and will process review text with optional fields such as rating, date, product identifier, and summary, using auto-detection so different upload schemas work without manual column mapping.
+•	The system will apply text preprocessing, sentiment classification, and aspect-based sentiment analysis to produce overall sentiment labels with confidence scores and aspect-level sentiment results across seven aspect categories: quality, price, delivery, taste, service, appearance, and usability.
+•	The system will extract keywords (TF-IDF) and recurring phrases (bigrams/trigrams) to summarize common complaints and praise themes, including sentiment-bucketed word clouds.
+•	The system will aggregate sentiment, themes, and trends at the product level when product identifiers are present, allowing aspect, theme, trend, and review views to be scoped to a single product.
+•	The system will display results through a web dashboard with visualizations, filtering (product, sentiment, date range, keyword/theme), searching, sorting, pagination, and export features (CSV processed reviews, JSON dashboard summary, dedicated aspect-analytics CSV/JSON, and filtered-review CSV).
+•	The system will additionally provide a single-review prediction interface for testing the trained classifier and a model information page for inspecting evaluation metrics and candidate model comparisons.
+•	The system will persist completed analyses as backend saved projects so users can reload previous dashboard results or delete stored analyses from the upload page.
 •	The intended users include sellers, product managers, and customer support teams who need faster review insights for decision-making.
 
 3.2.  Delimitations
@@ -47,30 +50,30 @@ III. SCOPE AND DELIMITATIONS
 •	The system will be designed for batch analysis of uploaded datasets rather than continuous streaming data.
 •	Advanced NLP tasks such as sarcasm detection and deep contextual understanding will not be prioritized in the prototype.
 •	Multilingual sentiment analysis will not be a main focus unless included as an extension.
-•	No database will be used in the prototype; outputs will be file-based (exported reports/results).
+•	No database will be used in the prototype; outputs will be file-based through exported reports/results and backend saved-project JSON files.
 
 
 IV. REVIEW OF RELATED LITERATURE AND SYSTEMS
 
 4.1. Related Studies
 
-Sentiment analysis is a well-established area in NLP that focuses on extracting and classifying opinions expressed in text into polarity categories such as positive and negative. Liu (2012) explains that sentiment analysis (opinion mining) aims to identify and analyze opinions, sentiments, and evaluations from textual data, which makes it suitable for analyzing product reviews.
+Sentiment analysis is a well-established area in NLP that focuses on extracting and classifying opinions expressed in text into polarity categories such as positive and negative. Early work showed that review polarity could be inferred from textual orientation cues (Turney, 2002). Liu (2012) explains that sentiment analysis (opinion mining) aims to identify and analyze opinions, sentiments, and evaluations from textual data, while Pang and Lee (2008) describe sentiment analysis as a major NLP task for organizing subjective text. This makes the technique suitable for product reviews, where customer opinions are the main source of insight.
 
-Recent literature shows that sentiment analysis pipelines typically include preprocessing, feature representation (e.g., TF-IDF or embeddings), and classification using machine learning, deep learning, or ensemble learning approaches (Tan et al., 2023; Mao et al., 2024). For product reviews, transformer-based and hybrid approaches are widely studied due to their ability to capture context and improve classification performance compared with simpler baselines (Ghatora et al., 2024; Daza et al., 2024).
+Recent literature shows that sentiment analysis pipelines typically include preprocessing, feature representation (e.g., TF-IDF or embeddings), and classification using machine learning, deep learning, or ensemble learning approaches (Medhat et al., 2014; Tan et al., 2023; Mao et al., 2024). TF-IDF remains a common and interpretable baseline feature weighting approach for text mining and information retrieval (Salton & Buckley, 1988; Manning et al., 2008). For product reviews, transformer-based, deep learning, and hybrid approaches are widely studied due to their ability to capture context and improve classification performance compared with simpler baselines (Zhang et al., 2018; Chen, 2024; Ghatora et al., 2024; Daza et al., 2024; Li et al., 2024).
 
-Recent work in e-commerce review analytics highlights the value of extracting not only overall sentiment but also fine-grained, aspect-based sentiment to better understand drivers of customer satisfaction (Davoodi et al., 2025; Wankhade et al., 2024).
+Recent work in e-commerce review analytics highlights the value of extracting not only overall sentiment but also fine-grained, aspect-based sentiment to better understand drivers of customer satisfaction (Davoodi et al., 2025; Wankhade et al., 2024). Earlier product-review summarization work also showed that identifying product features and their associated opinions helps users understand strengths and weaknesses without reading every review manually (Hu & Liu, 2004). Aspect-based sentiment analysis benchmarks such as SemEval further formalized aspect category detection and polarity classification as important subtasks (Pontiki et al., 2014).
 
 4.2. Related Systems
 
-Existing tools provide review analytics, but many require paid subscriptions or platform-specific integration. General analytics dashboards often focus on numerical KPIs and may not directly provide sentiment insights from unstructured text. This proposed system focuses on a lightweight, upload-based workflow for sentiment analysis and thematic summarization, suitable for small businesses or academic prototyping, while emphasizing interpretability and evaluability.
+Existing tools provide review analytics, but many require paid subscriptions or platform-specific integration. Large e-commerce platforms are also beginning to automate review summarization, showing the practical value of reducing long review lists into concise insights (Hadero, 2023). General analytics dashboards often focus on numerical KPIs and may not directly provide sentiment insights from unstructured text. This proposed system focuses on a lightweight, upload-based workflow for sentiment analysis and thematic summarization, suitable for small businesses or academic prototyping, while emphasizing interpretability and evaluability.
 
 V. CONCEPTUAL FRAMEWORK
 Input
-The system accepts a customer review dataset (CSV/Excel) containing review text and optional fields such as rating, date, and product/category.
+The system accepts a customer review dataset (CSV/Excel) containing review text and optional fields such as rating, date, product identifier, and summary. Column names are auto-detected from common naming conventions.
 Process
-The system validates the dataset, preprocesses the text, performs overall sentiment classification and aspect-based sentiment analysis (e.g., delivery, quality, price), extracts themes/keywords, and aggregates results by product and time.
+The system validates the dataset, preprocesses the text (cleaning, tokenization, lemmatization with negation preservation), performs overall sentiment classification using a TF-IDF + Logistic Regression model with rule-based confidence calibration, and runs rule-based aspect-based sentiment analysis (quality, price, delivery, taste, service, appearance, usability) with TextBlob polarity scoring per aspect. Themes and recurring phrases are extracted using TF-IDF keyword ranking and n-gram frequency counts. When the dataset includes dates, monthly sentiment trends and per-aspect monthly trends are computed. When product identifiers exist, results are also aggregated per product and made available for on-demand product-scoped drill-down through a backend re-aggregation endpoint.
 Output
-The system generates a web dashboard that displays overall sentiment distribution, aspect-level sentiment breakdown, sentiment trends (if dates exist), top complaint and praise themes, and provides filtering and export features.
+The system generates a web dashboard with five analysis views — Overview, Aspects, Themes, Trends, and Reviews — that display overall sentiment distribution, rating distribution, product-level sentiment comparison, aspect-level sentiment breakdowns and drill-downs, sentiment trends (overall, per-product, and per-aspect), keyword and phrase summaries, praise/complaint word clouds, and a searchable/filterable review table with a review detail modal. The dashboard also exposes a single-review Test Prediction page and a Model Info page (live evaluation metrics, confusion matrix, classification report, and multi-model comparison results), plus filtering and multi-format export features.
 
 VI. METHODOLOGY
 
@@ -81,16 +84,35 @@ VI. METHODOLOGY
 
 6.2. Data Preprocessing
 
-•	Text cleaning (lowercasing, punctuation removal, whitespace normalization).
-•	Tokenization and stopword removal.
-•	Handling missing values by removing empty reviews or marking missing metadata fields.
-•	Transforming text into numerical features (e.g., TF-IDF vectors) for classification.
+•	Text cleaning (HTML/URL/email stripping, lowercasing, punctuation removal, whitespace normalization, and zero-width character removal).
+•	Tokenization, lemmatization, and stopword removal using standard NLP preprocessing practices, with negation words intentionally preserved so that polarity-flipping context (e.g., "not good") is not discarded (Bird et al., 2009).
+•	Handling missing values by removing empty reviews and marking missing optional metadata fields so downstream steps degrade gracefully.
+•	Auto-detection of common column names (review text, rating, date, product identifier, summary) so different upload schemas work without manual mapping.
+•	Rating-to-sentiment label derivation during training data preparation (1–2 = negative, 3 = neutral, 4–5 = positive), with optional hybrid TextBlob re-labeling on ambiguous mid-rating rows to improve neutral-class quality.
+•	Transforming text into numerical features using TF-IDF vectors (unigrams + bigrams) for classification and theme extraction, following established term-weighting practices in text retrieval and classification (Salton & Buckley, 1988; Manning et al., 2008).
 
 6.3. Data Analytics Techniques
 
-•	Chosen Technique: Sentiment Classification and Aspect-Based Sentiment Analysis (ABSA)
-•	Justification: Overall sentiment supports quick satisfaction monitoring, while ABSA identifies which product aspects drive negative/positive sentiment for better prioritization. (Tan et al., 2023; Mao et al., 2024).
-•	Supporting Technique: Text mining for aspect/theme extraction and keyword/phrase summarization.
+•	Chosen Technique: Sentiment Classification and Aspect-Based Sentiment Analysis (ABSA).
+•	Justification: Overall sentiment supports quick satisfaction monitoring, while ABSA identifies which product aspects drive negative/positive sentiment for better prioritization (Tan et al., 2023; Mao et al., 2024).
+•	Sentiment Model: Logistic Regression trained on TF-IDF unigrams + bigrams (up to 50,000 features) with class-weight rebalancing for the neutral class. A rule-based calibration layer using positive, negative, and neutral cue lexicons adjusts low-confidence single-text predictions.
+•	ABSA Approach: Rule-based aspect detection using boundary-aware compiled regex patterns over per-aspect keyword lexicons, combined with sentence-level TextBlob polarity scoring. The rule-based design is intentional to keep the prototype transparent and easy to explain during evaluation, while still following the core idea of linking product aspects/features to opinion polarity (Hu & Liu, 2004; Pontiki et al., 2014; Loria, 2018).
+•	Supporting Technique: Text mining for aspect/theme extraction and keyword/phrase summarization, including TF-IDF keyword ranking, CountVectorizer phrase extraction (bigrams/trigrams), sentiment-bucketed praise/complaint keyword lists, and word-cloud frequency data per sentiment class.
+•	Product-Level Aggregation: Per-product sentiment summaries with an attention-scoring heuristic that combines negative share, neutral share, and average rating to flag products that may need seller attention.
+•	Model Comparison: An offline comparison utility evaluates Logistic Regression, Linear SVM, Multinomial Naive Bayes, Complement Naive Bayes, and SGD on the same train/test split to justify the production model and surface candidate alternatives in the Model Info page. These candidate models are implemented using scikit-learn, a standard machine-learning library for Python (Pedregosa et al., 2011).
+
+6.3.1. Model Comparison Results and Final Model Choice
+
+The project compares five classical machine-learning text classifiers using the same TF-IDF unigram + bigram feature representation and the same train/test split. Macro F1 is treated as the main ranking metric because review sentiment datasets may be class-imbalanced, especially around the neutral class.
+
+Model Comparison Summary:
+•	Rank 1 – Logistic Regression: Accuracy = 0.8936, Macro Precision = 0.7396, Macro Recall = 0.7097, Macro F1 = 0.7237, Fit/Predict Time = 10.406 seconds.
+•	Rank 2 – Linear SVM: Accuracy = 0.8871, Macro Precision = 0.7141, Macro Recall = 0.7178, Macro F1 = 0.7159, Fit/Predict Time = 7.621 seconds.
+•	Rank 3 – SGD Logistic Classifier: Accuracy = 0.8719, Macro Precision = 0.6992, Macro Recall = 0.5998, Macro F1 = 0.6348, Fit/Predict Time = 1.207 seconds.
+•	Rank 4 – Complement Naive Bayes: Accuracy = 0.8267, Macro Precision = 0.5978, Macro Recall = 0.6753, Macro F1 = 0.6183, Fit/Predict Time = 0.300 seconds.
+•	Rank 5 – Multinomial Naive Bayes: Accuracy = 0.8566, Macro Precision = 0.8072, Macro Recall = 0.4746, Macro F1 = 0.5103, Fit/Predict Time = 0.280 seconds.
+
+The final model selected for the application is Logistic Regression with TF-IDF unigrams + bigrams. It was chosen because it achieved the best macro F1 and the highest overall accuracy while remaining fast enough for local prototype use, interpretable as a linear baseline, easy to persist with joblib, and compatible with probability outputs needed for confidence scores in the dashboard.
 
 6.4. System Development Methodology
 
@@ -105,46 +127,54 @@ VII. SYSTEM ARCHITECTURE AND DESIGN
 
 7.1. System Architecture
 
-•	Frontend: HTML/CSS/JavaScript dashboard UI for upload, filters, and visualization.
-•	Analytics Engine: Python and/or R scripts for preprocessing, sentiment classification, aspect-based sentiment analysis, theme extraction, and evaluation.
-•	Storage: No database; file-based inputs and outputs (e.g., processed CSV exports and summary JSON for charts).
+•	Frontend: React single-page application (Create React App) rendering the dashboard UI for upload, filters, visualizations (Recharts), and exports. Custom CSS is used for styling; light/dark themes are supported via a CSS variable system.
+•	Backend API: Flask REST server (with Flask-CORS) that exposes endpoints for health check, upload/analyze, asynchronous job start and status polling, exports (CSV/JSON/aspect-specific), saved project list/load/delete actions, generated-file cleanup, single-review prediction, product-scoped analysis, full reviews-table retrieval, and model information.
+•	Analytics Engine: Python pipeline split into numbered modules covering preprocessing, sentiment classification, ABSA, aspect themes, aspect trends, global themes, monthly trends, product summaries, reviews-table assembly, and model comparison.
+•	Storage: No database. File-based inputs and outputs are stored locally in uploads/, exports/, and projects/ folders. The projects/ folder stores completed analysis payloads so users can reload or delete saved backend analyses from the upload page.
 
 7.2. Functional Requirements
 
-•	The system shall allow users to upload CSV/Excel review datasets.
-•	The system shall validate required columns (at minimum: review text).
-•	The system shall preprocess text and perform sentiment classification and aspect-based sentiment analysis.
-•	The system shall compute overall and aspect-level sentiment summaries and extract key themes/aspects.
-•	The system shall present results in a dashboard with filters and export features.
+•	The system shall allow users to upload CSV/Excel review datasets (.csv, .xlsx, .xls) and shall reject other file types with a clear error message.
+•	The system shall validate required columns (at minimum: review text) and shall auto-detect optional columns such as rating, date, product identifier, and summary.
+•	The system shall preprocess text and perform sentiment classification (positive/neutral/negative with confidence) and aspect-based sentiment analysis across the defined aspect categories.
+•	The system shall compute overall, per-aspect, and per-product sentiment summaries, extract key themes (keywords + recurring phrases), and build word-cloud frequency data per sentiment class.
+•	The system shall provide an asynchronous upload-and-analyze workflow with a job ID, status polling, and progress messages so users see pipeline stage updates instead of a frozen UI.
+•	The system shall present results in a dashboard with five sections — Overview, Aspects, Themes, Trends, Reviews — and shall support filtering by product, sentiment, date range, and keyword/theme, as well as searching, sorting, pagination, and exports (processed CSV, dashboard JSON, aspect CSV/JSON, and a filtered-review CSV from the Reviews tab).
+•	The system shall provide a Review Details view (modal) showing the full review text, summary (if available), predicted sentiment, confidence, rating, date, product identifier, and detected aspects with per-aspect sentiment labels.
+•	The system shall expose a single-review prediction endpoint and a Test Prediction page for testing the classifier outside of dataset uploads.
+•	The system shall expose backend health status, evaluation metrics (accuracy, precision, recall, F1, confusion matrix, classification report), and a multi-model comparison summary through a Model Info page.
+•	The system shall persist completed analyses as backend saved projects and shall allow users to load or delete those saved projects from the upload page.
+•	The system shall enforce configurable upload size limits and shall provide generated-file cleanup controls for uploads, exports, and saved project files.
 
 7.3. Non-Functional Requirements
 
 •	Performance: The system should process a moderate dataset within reasonable time for classroom-scale use.
 •	Usability: The interface should be simple with clear labels, charts, and filters for non-technical users.
 •	Security (basic): Uploaded datasets should not be publicly exposed; the system should avoid storing sensitive identifiers and should support local/offline use if required.
-
+•	Reliability and maintainability: The backend should return clear error messages, use logging for failures, isolate storage utilities, and include unit tests for key pipeline and storage behaviors.
 
 VIII. TOOLS AND TECHNOLOGIES
 
-•	Frontend: HTML, CSS, JavaScript or React + Tailwind CSS (dashboard interface, file upload, filters, and visualizations).
-•	Analytics / NLP / ML:
-o	Python: pandas, numpy, scikit-learn, nltk/spaCy, matplotlib/plotly
-o	R (optional/support	): tidyverse, tidytext, tm/quanteda, caret, ggplot2/plotly
-•	Database: None (file-based workflow).
-•	Deployment Environment: Web-based UI (local hosting for prototype), with local execution of analytics scripts to generate dashboard-ready outputs.
-
+•	Frontend: React (Create React App), Recharts (charts), lucide-react (icons), react-dropzone (file selection), axios (HTTP client). Styling is handled with hand-written CSS using CSS custom properties for theming (light/dark).
+•	Backend / API: Python with Flask and Flask-CORS exposing REST endpoints for upload, asynchronous analysis, exports, saved projects, storage cleanup, single-review prediction, product-scoped drill-down, and model information.
+•	Analytics / NLP / ML (Python): pandas, numpy, scikit-learn (TfidfVectorizer, CountVectorizer, LogisticRegression, LinearSVC, MultinomialNB, ComplementNB, SGDClassifier), NLTK (stopwords, WordNetLemmatizer), TextBlob (polarity scoring used in ABSA and hybrid labeling), and joblib (model persistence).
+•	Storage: Local filesystem storage is used for temporary uploads, generated exports, and saved analysis project JSON files (uploads/, exports/, and projects/ folders). Saved Projects provide the reload and delete workflow for completed analyses without requiring a database.
+•	Deployment Environment: Web-based UI served by the React development server, talking to the Flask development server for the prototype. Designed for local execution; CORS origins, upload size limits, generated-file count limits, and storage retention hours are configurable through environment variables.
 
 IX. EVALUATION PLAN
 
 Model Evaluation Metrics
 •	Accuracy
-•	Precision
-•	Recall
-•	F1-score
+•	Precision (macro and per-class)
+•	Recall (macro and per-class)
+•	F1-score (macro and per-class)
+•	Confusion matrix and full classification report
+•	Side-by-side multi-model comparison (Logistic Regression vs. Linear SVM vs. Multinomial Naive Bayes vs. Complement Naive Bayes vs. SGD) on the same train/test split
 System Testing Methods
-•	Functional testing (upload, validation, processing, filtering, export).
+•	Functional testing of the analysis pipeline and dashboard payload assembly using unit tests in backend/tests/ (e.g., preprocessing column detection, ABSA boundary matching, monthly trends, product aggregation, theme extraction, storage helpers, model comparison, and sentiment calibration).
+•	Frontend component testing using React Testing Library for core UI behaviors such as Reviews-tab filtering, product-scoped review loading, review-detail modal interactions, saved project loading/deletion, and upload-page project actions.
+•	Manual functional testing of upload, validation, async job progress, filtering, sorting, exports, single-review prediction, generated-file cleanup, and saved-project actions.
 •	Basic user acceptance testing (short feedback from target users on clarity and usefulness of insights).
-
 
 X. PROJECT TIMELINE
 
@@ -153,19 +183,25 @@ Week 1–2	Dataset selection, requirements gathering, initial UI layout	Dataset 
 Week 3–4	Text preprocessing pipeline implementation	Cleaned dataset + preprocessing scripts
 Week 5–6	Sentiment classifier development (baseline) + model evaluation	Evaluation metrics report
 Week 7–8	Theme/keyword extraction + aggregation logic	Theme summaries + aggregated insights
-Week 9–10	Web dashboard implementation (HTML/CSS/JS)	Working dashboard UI
+Week 9–10	React web dashboard implementation with custom CSS	Working dashboard UI
 Week 11	Integration + functional testing	Integrated prototype
 Week 12	Final evaluation, documentation, and presentation preparation	Final paper + demo-ready system
 
-
 XI. EXPECTED OUTPUTS
 
-•	A functional web-based sentiment analysis dashboard for product reviews.
-•	A trained sentiment classification and aspect-based sentiment analysis model with evaluation metrics.
-•	Aspect/theme summaries highlighting common complaints and praises per product aspect.
-•	Exportable processed review outputs and summary results.
-•	Technical documentation describing system flow, methods, and evaluation.
-
+•	A functional web-based product review analytics dashboard organized into five analysis sections:
+  o	Overview – sentiment KPIs, pie chart, rating distribution or sentiment fallback, and a product-level sentiment comparison table with an optional product focus filter.
+  o	Aspects – per-aspect stacked bar chart, polarity radar chart, ranked aspect list, detail drill-down panel (praise/complaint phrases and aspect trend), date-range filter, and aspect-only CSV/JSON export.
+  o	Themes – praise and complaint metric cards, top praise and complaint keyword/phrase panels, sentiment-bucketed praise and complaint word clouds, and a ranked TF-IDF keyword list.
+  o	Trends – overall and per-product monthly sentiment trends with date-range filtering, including stacked area, line share, volume bar, and good-vs-bad bar views, plus latest/best/risk/peak insight cards.
+  o	Reviews – searchable, filterable, sortable, and paginated review table with product, sentiment, date-range, and keyword/theme filters, a CSV export of the current filtered view, and a Review Details modal.
+•	A Test Prediction page for single-review sentiment inspection.
+•	A Model Info page exposing live evaluation metrics, confusion matrix, classification report, and multi-model comparison results.
+•	A trained sentiment classification model and a rule-based aspect-based sentiment analyzer, along with the saved TF-IDF vectorizer and evaluation metric artifacts.
+•	Aspect and theme summaries highlighting common complaints and praises per product aspect, including word clouds and recurring phrases.
+•	Exportable processed review outputs (CSV), dashboard summary results (JSON), aspect-only reports (CSV and JSON), and filtered-review CSV downloads from the Reviews tab.
+•	Backend Saved Projects support for loading and deleting previous analyses, plus generated-file cleanup for temporary uploads, exports, and saved project files.
+•	Technical documentation describing system flow, methods, evaluation, setup, architecture, and operational configuration, including README.md and docs/architecture.md.
 
 XII. SIGNIFICANCE OF THE PROJECT
 
@@ -179,9 +215,11 @@ The project will ensure data privacy by using public datasets or consent-based d
 
 XIV. REFERENCES
 
-Davoodi, L., Mezei, J., & Heikkilä, M. (2025). Aspect-based sentiment classification of user reviews to understand customer satisfaction of e-commerce platforms. Electronic Commerce Research. https://doi.org/10.1007/s10660-025-09948-4\
+Bird, S., Klein, E., & Loper, E. (2009). Natural language processing with Python. O'Reilly Media.
 
 Chen, Z. (2024). Sentiment analysis with different deep learning methods. In Proceedings of the 1st International Conference on Data Science and Engineering (ICDSE 2024), 154-159. https://doi.org/10.5220/0012832800004547
+
+Davoodi, L., Mezei, J., & Heikkilä, M. (2025). Aspect-based sentiment classification of user reviews to understand customer satisfaction of e-commerce platforms. Electronic Commerce Research. https://doi.org/10.1007/s10660-025-09948-4
 
 Daza, A., González Rueda, N. D., Aguilar Sánchez, M. S., Robles Espíritu, W. F., & Chauca Quiñones, M. E. (2024). Sentiment analysis on e-commerce product reviews using machine learning and deep learning algorithms: A bibliometric analysis, systematic literature review, challenges and future works. International Journal of Information Management Data Insights, 4(2), 100267. https://doi.org/10.1016/j.jjimei.2024.100267
 
@@ -189,12 +227,34 @@ Ghatora, P. S., Hosseini, S. E., Pervez, S., Iqbal, M. J., & Shaukat, N. (2024).
 
 Hadero, H. (2023, August 11). Amazon is rolling out a generative AI feature that summarizes product reviews. AP News. https://apnews.com/article/amazon-generative-ai-reviews-products-4db85ac68c0d46f7b728b9da48da1a96
 
+Hu, M., & Liu, B. (2004). Mining and summarizing customer reviews. In Proceedings of the tenth ACM SIGKDD international conference on Knowledge discovery and data mining (pp. 168-177). Association for Computing Machinery. https://doi.org/10.1145/1014052.1014073
+
 Li, W., Chen, Y., Zheng, S., Wang, L., & Lalor, J. P. (2024). Stars are all you need: A distantly supervised pyramid network for unified sentiment analysis. In Proceedings of the Ninth Workshop on Noisy and User-generated Text (W-NUT 2024), 104-118. Association for Computational Linguistics. https://aclanthology.org/2024.wnut-1.10.pdf
+
+Liu, B. (2012). Sentiment analysis and opinion mining. Morgan & Claypool Publishers. https://doi.org/10.2200/S00416ED1V01Y201204HLT016
+
+Loria, S. (2018). TextBlob documentation: Simplified text processing. https://textblob.readthedocs.io/
+
+Manning, C. D., Raghavan, P., & Schütze, H. (2008). Introduction to information retrieval. Cambridge University Press. https://nlp.stanford.edu/IR-book/
 
 Mao, Y., Liu, Q., & Zhang, Y. (2024). Sentiment analysis methods, applications, and challenges: A systematic literature review. Journal of King Saud University – Computer and Information Sciences, 36(4), 102048. https://doi.org/10.1016/j.jksuci.2024.102048
 
+Medhat, W., Hassan, A., & Korashy, H. (2014). Sentiment analysis algorithms and applications: A survey. Ain Shams Engineering Journal, 5(4), 1093-1113. https://doi.org/10.1016/j.asej.2014.04.011
+
+Pang, B., & Lee, L. (2008). Opinion mining and sentiment analysis. Foundations and Trends in Information Retrieval, 2(1-2), 1-135. https://doi.org/10.1561/1500000011
+
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., & Duchesnay, E. (2011). Scikit-learn: Machine learning in Python. Journal of Machine Learning Research, 12, 2825-2830. https://jmlr.org/papers/v12/pedregosa11a.html
+
+Pontiki, M., Galanis, D., Pavlopoulos, J., Papageorgiou, H., Androutsopoulos, I., & Manandhar, S. (2014). SemEval-2014 Task 4: Aspect based sentiment analysis. In Proceedings of the 8th International Workshop on Semantic Evaluation (SemEval 2014) (pp. 27-35). Association for Computational Linguistics. https://doi.org/10.3115/v1/S14-2004
+
 PowerReviews. (2023, May 11). Survey: The ever-growing power of reviews (2023 edition). https://www.powerreviews.com/power-of-reviews-2023/
+
+Salton, G., & Buckley, C. (1988). Term-weighting approaches in automatic text retrieval. Information Processing & Management, 24(5), 513-523. https://doi.org/10.1016/0306-4573(88)90021-0
 
 Tan, K. L., Lee, C. P., & Lim, K. M. (2023). A survey of sentiment analysis: Approaches, datasets, and future research. Applied Sciences, 13(7), 4550. https://doi.org/10.3390/app13074550
 
+Turney, P. D. (2002). Thumbs up or thumbs down? Semantic orientation applied to unsupervised classification of reviews. In Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics (pp. 417-424). Association for Computational Linguistics. https://doi.org/10.3115/1073083.1073153
+
 Wankhade, M., Kulkarni, C., & Rao, A. C. S. (2024). A survey on aspect base sentiment analysis methods and challenges. Applied Soft Computing, 167, 112249. https://doi.org/10.1016/j.asoc.2024.112249
+
+Zhang, L., Wang, S., & Liu, B. (2018). Deep learning for sentiment analysis: A survey. Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery, 8(4), e1253. https://doi.org/10.1002/widm.1253
