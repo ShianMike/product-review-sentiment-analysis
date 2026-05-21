@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import ReviewsTable from '../components/dashboard/_12_ReviewsTable';
+import ReviewsTable from '../components/dashboard/_13_ReviewsTable';
 import { getReviews } from '../_1_api';
 
 jest.mock('../_1_api', () => ({

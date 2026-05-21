@@ -1,11 +1,17 @@
 """
-[Pipeline Step 7 of 11] Theme & Keyword Extraction
+[Backend Step 7 of 13] Theme & Keyword Extraction
 
 How this module fulfills Project.txt requirements:
 - Objective 2.2.3 and Scope 3.1: extracts keywords, recurring phrases,
   complaints, praises, and word-cloud data for the Themes dashboard tab.
 - Conceptual Framework: complements predefined ABSA categories with broader
   corpus-level themes that can reveal issues outside the seven aspect buckets.
+
+Code process:
+- Step 1: Rank distinctive review keywords with TF-IDF.
+- Step 2: Count recurring bigram/trigram phrases.
+- Step 3: Split praise and complaint language by predicted sentiment bucket.
+- Step 4: Return keyword, phrase, and word-cloud payloads for the Themes tab.
 
 Research grounding:
 - TF-IDF keyword ranking and n-gram phrase counts follow classical text-mining

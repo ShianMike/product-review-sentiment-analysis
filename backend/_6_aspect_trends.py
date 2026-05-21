@@ -1,11 +1,17 @@
 """
-[Pipeline Step 6 of 11] Aspect-Level Monthly Trends
+[Backend Step 6 of 13] Aspect-Level Monthly Trends
 
 How this module fulfills Project.txt requirements:
 - Scope 3.1 and Functional Requirement 7.2: builds trend charts when timestamps
   are available, including aspect-level trend views in the Aspects tab.
 - Delimitation 3.2: keeps the system batch/upload-based; trends are aggregated
   from uploaded rows rather than streamed in real time.
+
+Code process:
+- Step 1: Confirm the uploaded dataset has usable date values.
+- Step 2: Group detected aspect sentiment counts by calendar month.
+- Step 3: Calculate positive, neutral, negative, and net sentiment percentages.
+- Step 4: Return chart-ready monthly series for the most-mentioned aspects.
 
 Research grounding:
 - The trend logic is deterministic aggregation rather than a predictive model:

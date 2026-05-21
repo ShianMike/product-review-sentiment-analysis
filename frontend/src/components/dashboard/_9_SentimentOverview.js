@@ -1,4 +1,4 @@
-// _8_SentimentOverview.js
+// _9_SentimentOverview.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the "Overview" tab of the dashboard.
 // This file does NOT call the backend. The parent (Dashboard/App) already
@@ -22,7 +22,7 @@ import {
   Tooltip, ResponsiveContainer
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, MessageSquare, Tag, Zap, BarChart3, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 
 const COLORS = {
   positive: '#22c55e',

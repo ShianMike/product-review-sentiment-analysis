@@ -1,11 +1,17 @@
 """
-[Pipeline Step 8 of 11] Monthly Sentiment Trends
+[Backend Step 8 of 13] Monthly Sentiment Trends
 
 How this module fulfills Project.txt requirements:
 - Scope 3.1 and Expected Outputs XI: creates monthly sentiment trend data for
   the Trends tab when the upload includes usable date/timestamp metadata.
 - Functional Requirement 7.2: supports date-aware charts while gracefully
   returning None when dates are absent or unparseable.
+
+Code process:
+- Step 1: Check whether preprocessing produced a parsed date column.
+- Step 2: Convert dates into year-month buckets.
+- Step 3: Count sentiment labels per month.
+- Step 4: Return chronological percentage rows for the Trends tab.
 
 Research grounding:
 - This is deterministic descriptive analytics, not forecasting. It aggregates

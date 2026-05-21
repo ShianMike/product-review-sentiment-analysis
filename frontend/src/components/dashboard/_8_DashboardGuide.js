@@ -1,4 +1,4 @@
-// _7_DashboardGuide.js
+// _8_DashboardGuide.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared UI components that power the "?" info modals shown throughout the
 // dashboard. Nothing in this file communicates with the backend; it only

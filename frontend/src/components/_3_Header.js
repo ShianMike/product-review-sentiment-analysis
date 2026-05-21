@@ -1,6 +1,8 @@
 import React from 'react';
 import { BarChart3, Sun, Moon } from 'lucide-react';
 
+// Primary app-level tabs. Dashboard is gated until App has analysisData, so
+// users cannot open empty charts before an upload or saved project is loaded.
 const NAV_TABS = [
   {
     id: 'upload',
@@ -52,7 +54,7 @@ const DASHBOARD_SECTIONS = [
 function Header({ activeTab, setActiveTab, hasData, activeSection, setActiveSection, theme, setTheme }) {
   return (
     <aside className="sidebar">
-      {/* Brand header */}
+      {/* Brand header and theme toggle stay visible across every app section. */}
       <div className="sb2-brand">
         <div className="sb2-brand-left">
           <div className="sb2-brand-icon">
@@ -72,7 +74,7 @@ function Header({ activeTab, setActiveTab, hasData, activeSection, setActiveSect
         </button>
       </div>
 
-      {/* Main nav + sub-nav */}
+      {/* Main nav switches the top-level view rendered by _2_App.js. */}
       <nav className="sb2-nav">
         {/* Primary tabs */}
         <div className="sb2-nav-group">
@@ -93,7 +95,7 @@ function Header({ activeTab, setActiveTab, hasData, activeSection, setActiveSect
           })}
         </div>
 
-        {/* Dashboard view sub-nav */}
+        {/* Dashboard sub-nav appears only after data exists and dashboard is active. */}
         {activeTab === 'dashboard' && hasData && (
           <div className="sb2-subnav">
             <div className="sb2-subnav-header">

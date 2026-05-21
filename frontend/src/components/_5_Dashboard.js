@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Download, FileText, Database } from 'lucide-react';
-import SentimentOverview from './dashboard/_8_SentimentOverview';
-import AspectAnalysis from './dashboard/_9_AspectAnalysis';
-import ThemeSummary from './dashboard/_10_ThemeSummary';
-import TrendChart from './dashboard/_11_TrendChart';
-import ReviewsTable from './dashboard/_12_ReviewsTable';
-import { GuideButton, InfoGuideModal } from './dashboard/_7_DashboardGuide';
+import SentimentOverview from './dashboard/_9_SentimentOverview';
+import AspectAnalysis from './dashboard/_10_AspectAnalysis';
+import ThemeSummary from './dashboard/_11_ThemeSummary';
+import TrendChart from './dashboard/_12_TrendChart';
+import ReviewsTable from './dashboard/_13_ReviewsTable';
+import { GuideButton, InfoGuideModal } from './dashboard/_8_DashboardGuide';
 import { getExportUrl, exportJson } from '../_1_api';
 
 /**

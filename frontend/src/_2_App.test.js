@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import App from './App';
+import App from './_2_App';
 import { getProjects } from './_1_api';
 
 jest.mock('./_1_api', () => ({

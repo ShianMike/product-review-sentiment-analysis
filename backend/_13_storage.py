@@ -1,5 +1,5 @@
 """
-[Operational Utility] Local Storage and Cleanup
+[Backend Step 13 of 13] Local Storage and Cleanup
 
 How this module fulfills Project.txt requirements:
 - Functional Requirement 7.2: persists completed analyses as backend saved
@@ -8,6 +8,12 @@ How this module fulfills Project.txt requirements:
   IDs, and supports generated-file cleanup for uploads, exports, and projects.
 - Tools and Technologies VIII: implements the local filesystem storage approach
   described for the no-database prototype.
+
+Code process:
+- Step 1: Validate generated project IDs and export filenames.
+- Step 2: Save completed analysis payloads as local project JSON files.
+- Step 3: List, load, and delete saved projects for the upload page.
+- Step 4: Clean old generated uploads, exports, and projects safely.
 
 Design note:
 - This is intentionally file-based rather than database-backed because

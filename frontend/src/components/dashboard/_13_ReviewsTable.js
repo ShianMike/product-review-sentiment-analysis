@@ -1,4 +1,4 @@
-// _12_ReviewsTable.js
+// _13_ReviewsTable.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the "Reviews" tab of the dashboard.
 // The dashboard response includes a capped review sample for fast initial load.
@@ -313,7 +313,7 @@ function ReviewsTable({ data }) {
   };
 
   // Produces a color-coded badge using the CSS class pattern badge-<sentiment>
-  // (e.g. badge-positive, badge-neutral, badge-negative) defined in index.css.
+  // (e.g. badge-positive, badge-neutral, badge-negative) defined in _15_index.css.
   const sentimentBadge = (sentiment) => {
     const normalized = sentiment || 'neutral';
     const cls = `badge badge-${normalized}`;

@@ -1,5 +1,5 @@
 """
-[Pipeline Step 2 of 11] Text Preprocessing
+[Backend Step 2 of 13] Text Preprocessing
 
 How this module fulfills Project.txt requirements:
 - Functional Requirement 7.2: validates uploaded datasets and normalizes the
@@ -11,6 +11,12 @@ How this module fulfills Project.txt requirements:
 - Conceptual Framework: converts heterogeneous CSV/Excel schemas into one
   normalized DataFrame that downstream sentiment, ABSA, theme, trend, product,
   and reviews-table modules can consume consistently.
+
+Code process:
+- Step 1: Detect review text and optional rating/date/product/summary columns.
+- Step 2: Clean raw text by removing HTML, links, punctuation, and bad spacing.
+- Step 3: Tokenize, remove stopwords, preserve negations, and lemmatize tokens.
+- Step 4: Return a normalized DataFrame for the rest of the backend pipeline.
 
 Research grounding:
 - Rating-derived sentiment labels follow the common review-mining formulation

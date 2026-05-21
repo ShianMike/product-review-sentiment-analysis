@@ -1,4 +1,4 @@
-// _11_TrendChart.js
+// _12_TrendChart.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the "Trends" tab of the dashboard.
 // All time-series data was computed by the backend during the analysis run.
@@ -22,7 +22,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
 import { TrendingUp, TrendingDown, BarChart3, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 
 const tooltipStyle = {
   background: 'var(--bg-card)',

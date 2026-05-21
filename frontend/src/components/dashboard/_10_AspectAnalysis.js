@@ -1,4 +1,4 @@
-// _9_AspectAnalysis.js
+// _10_AspectAnalysis.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the "Aspects" tab of the dashboard.
 //
@@ -30,7 +30,7 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import { Tag, ArrowUpRight, ArrowDownRight, Target, Download, Database, TrendingUp, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 import { exportAspectsCsv, exportAspectsJson, getExportUrl, getProductAnalysis } from '../../_1_api';
 
 const COLORS = {

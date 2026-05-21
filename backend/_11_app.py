@@ -1,5 +1,5 @@
 """
-[Pipeline Step 11 of 11] Flask API Server — Orchestrator
+[Backend Step 11 of 13] Flask API Server - Orchestrator
 
 How this module fulfills Project.txt requirements:
 - System Architecture 7.1: acts as the Flask REST backend that connects the
@@ -12,16 +12,16 @@ How this module fulfills Project.txt requirements:
   dataset fields.
 
 Runtime flow:
-1. Accept CSV/Excel uploads and normalize columns   (Step 2  : _2_preprocessing)
-2. Predict overall sentiment                        (Step 3  : _3_sentiment)
-3. Run rule-based ABSA                              (Step 4  : _4_absa)
-4. Extract per-aspect complaint/praise keywords      (Step 5  : _5_aspect_themes)
-5. Build per-aspect monthly trends                   (Step 6  : _6_aspect_trends)
-6. Extract global themes and keywords                (Step 7  : _7_themes)
-7. Compute monthly sentiment trends                  (Step 8  : _8_trends)
-8. Aggregate product-level summaries                 (Step 9  : _9_product_summary)
-9. Build review-table payload                        (Step 10 : _10_reviews_table)
-10. Persist exports and saved analysis projects      (Step 13 : _13_storage)
+- Step 1: Accept CSV/Excel uploads and normalize columns  (Step 2  : _2_preprocessing)
+- Step 2: Predict overall sentiment                       (Step 3  : _3_sentiment)
+- Step 3: Run rule-based ABSA                             (Step 4  : _4_absa)
+- Step 4: Extract per-aspect complaint/praise keywords     (Step 5  : _5_aspect_themes)
+- Step 5: Build per-aspect monthly trends                  (Step 6  : _6_aspect_trends)
+- Step 6: Extract global themes and keywords               (Step 7  : _7_themes)
+- Step 7: Compute monthly sentiment trends                 (Step 8  : _8_trends)
+- Step 8: Aggregate product-level summaries                (Step 9  : _9_product_summary)
+- Step 9: Build review-table payload                       (Step 10 : _10_reviews_table)
+- Step 10: Persist exports and saved projects              (Step 13 : _13_storage)
 
 Research grounding:
 - The orchestrated pipeline mirrors the standard sentiment-analysis workflow
@@ -332,14 +332,14 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     Run the full review analytics pipeline and return the dashboard response payload.
 
     Execution stages:
-      1. Row sampling (cap at 50 000 for predictable runtime)
-      2. Text preprocessing + column detection
-      3. TF-IDF + Logistic Regression sentiment classification
-      4. Aspect-based sentiment analysis (ABSA)
-      5. Keyword/theme extraction
-      6. Trend aggregation (monthly + per-aspect)
-      7. Build product/review table summaries
-      8. CSV export + final JSON response assembly
+      Step 1: Row sampling (cap at 50 000 for predictable runtime)
+      Step 2: Text preprocessing + column detection
+      Step 3: TF-IDF + Logistic Regression sentiment classification
+      Step 4: Aspect-based sentiment analysis (ABSA)
+      Step 5: Keyword/theme extraction
+      Step 6: Trend aggregation (monthly + per-aspect)
+      Step 7: Build product/review table summaries
+      Step 8: CSV export + final JSON response assembly
 
     This single function is called by both the synchronous `/api/analyze` route
     and the background thread spawned by `/api/analyze/start`.
@@ -747,10 +747,10 @@ def analyze_start():
     a live progress bar until the status transitions to 'completed' or 'failed'.
 
     Request/response flow:
-    1. Browser uploads the file here.
-    2. Backend saves a temporary copy and creates a job record.
-    3. A background thread starts processing the file.
-    4. Browser receives `job_id` right away and begins polling status.
+    Step 1: Browser uploads the file here.
+    Step 2: Backend saves a temporary copy and creates a job record.
+    Step 3: A background thread starts processing the file.
+    Step 4: Browser receives `job_id` right away and begins polling status.
     """
     if 'file' not in request.files:
         return _error_response('No file uploaded', status_code=400, code='missing_file')

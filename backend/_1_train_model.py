@@ -1,5 +1,5 @@
 """
-[Pipeline Step 1 of 11] Model Training Script
+[Backend Step 1 of 13] Model Training Script
 
 How this module fulfills Project.txt requirements:
 - Objective 2.2.1 and Methodology 6.2: loads review data, preprocesses text,
@@ -7,6 +7,12 @@ How this module fulfills Project.txt requirements:
 - Objective 2.2.2 and Evaluation Plan IX: trains the TF-IDF + Logistic
   Regression sentiment classifier and records accuracy, precision, recall, F1,
   and confusion-matrix artifacts for the Model Info page.
+
+Code process:
+- Step 1: Load the raw review dataset columns needed for training.
+- Step 2: Preprocess review text and derive training sentiment labels.
+- Step 3: Train the TF-IDF + Logistic Regression production classifier.
+- Step 4: Save the model, vectorizer, metrics, and processed training export.
 
 Research grounding:
 - Using review stars as distant supervision follows the rating-derived labeling

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import FileUpload from '../components/_3_FileUpload';
+import FileUpload from '../components/_4_FileUpload';
 import { cleanupGeneratedFiles, deleteProject, getProject, getProjects } from '../_1_api';
 
 jest.mock('react-dropzone', () => ({

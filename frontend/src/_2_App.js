@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/_2_Header';
-import FileUpload from './components/_3_FileUpload';
-import Dashboard from './components/_4_Dashboard';
-import SinglePredict from './components/_5_SinglePredict';
-import ModelInfo from './components/_6_ModelInfo';
-import './App.css';
+import Header from './components/_3_Header';
+import FileUpload from './components/_4_FileUpload';
+import Dashboard from './components/_5_Dashboard';
+import SinglePredict from './components/_6_SinglePredict';
+import ModelInfo from './components/_7_ModelInfo';
+import './_2_App.css';
 
 /**
  * App is the top-level coordinator for the frontend.
@@ -25,6 +25,8 @@ import './App.css';
  * project: Upload, Dashboard, Test Prediction, and Model Info.
  */
 function App() {
+  // App owns the shared state that connects the upload step to the dashboard.
+  // Child components receive setters/callbacks instead of using global state.
   const [analysisData, setAnalysisData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('upload');

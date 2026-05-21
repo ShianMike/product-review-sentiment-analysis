@@ -10,6 +10,8 @@ function SinglePredict() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Sends one review to the Flask API and stores the returned sentiment,
+  // confidence, and aspect labels for the result panel below.
   const handlePredict = async () => {
     if (!text.trim()) return;
     setIsLoading(true);
@@ -25,6 +27,7 @@ function SinglePredict() {
     }
   };
 
+  // Enter submits quickly, while Shift+Enter still lets the user add new lines.
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

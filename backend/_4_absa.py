@@ -1,5 +1,5 @@
 """
-[Pipeline Step 4 of 11] Aspect-Based Sentiment Analysis (ABSA)
+[Backend Step 4 of 13] Aspect-Based Sentiment Analysis (ABSA)
 
 How this module fulfills Project.txt requirements:
 - Objective 2.2.3 and Functional Requirement 7.2: extracts the configured
@@ -7,6 +7,12 @@ How this module fulfills Project.txt requirements:
   usability) and computes per-aspect sentiment labels.
 - Conceptual Framework: converts review text into aspect-level evidence used by
   the Aspects tab, Reviews detail modal, aspect exports, and product drill-downs.
+
+Code process:
+- Step 1: Match review text against the configured aspect keyword lexicons.
+- Step 2: Score the matched aspect context with TextBlob polarity.
+- Step 3: Convert polarity into positive, neutral, or negative aspect labels.
+- Step 4: Aggregate aspect counts and percentages for dashboard charts.
 
 Rule-based formulation and research grounding:
 - The aspect detector is intentionally rule-based: it uses curated keyword

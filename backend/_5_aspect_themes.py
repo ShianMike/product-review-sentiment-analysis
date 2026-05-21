@@ -1,11 +1,17 @@
 """
-[Pipeline Step 5 of 11] Aspect-Level Complaint & Praise Extraction
+[Backend Step 5 of 13] Aspect-Level Complaint & Praise Extraction
 
 How this module fulfills Project.txt requirements:
 - Objective 2.2.3: identifies frequent complaints and praises per configured
   aspect, not just overall sentiment.
 - Dashboard Requirement 7.2: supplies the Aspects tab with per-aspect praise and
   complaint keywords/phrases for the detail drill-down panel.
+
+Code process:
+- Step 1: Bucket processed review text by aspect and aspect sentiment label.
+- Step 2: Extract TF-IDF keywords from positive and negative aspect buckets.
+- Step 3: Extract recurring bigram/trigram phrases from the same buckets.
+- Step 4: Sort aspect summaries by mention volume for dashboard readability.
 
 Research grounding:
 - It combines ABSA outputs with TF-IDF keyword ranking and n-gram phrase counts,

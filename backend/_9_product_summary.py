@@ -1,5 +1,5 @@
 """
-[Pipeline Step 9 of 11] Product-Level Sentiment Aggregation
+[Backend Step 9 of 13] Product-Level Sentiment Aggregation
 
 How this module fulfills Project.txt requirements:
 - Scope 3.1 and Functional Requirement 7.2: aggregates sentiment, ratings,
@@ -8,6 +8,12 @@ How this module fulfills Project.txt requirements:
 - Expected Outputs XI: supplies product comparison tables, product focus
   filters, top-positive product cards, needs-attention cards, and optional
   per-product trend charts.
+
+Code process:
+- Step 1: Check whether the uploaded dataset includes product identifiers.
+- Step 2: Aggregate sentiment, confidence, volume, and ratings per product.
+- Step 3: Score which products may need seller attention.
+- Step 4: Build product comparison and per-product trend payloads.
 
 Research grounding:
 - The aggregation is descriptive analytics: review-level sentiment predictions

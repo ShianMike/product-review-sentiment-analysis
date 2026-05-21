@@ -1,5 +1,5 @@
 """
-[Pipeline Utility] Sentiment Model Comparison
+[Backend Step 12 of 13] Sentiment Model Comparison
 
 How this module fulfills Project.txt requirements:
 - Specific Objective 2.2.5 and Evaluation Plan IX: compares Logistic Regression,
@@ -7,6 +7,12 @@ How this module fulfills Project.txt requirements:
   same TF-IDF train/test split.
 - Model Info requirement: exports JSON-safe comparison metadata and scores so
   the frontend can show why the final production model was selected.
+
+Code process:
+- Step 1: Preprocess the same source dataset used for production training.
+- Step 2: Train each candidate classifier on the same TF-IDF train/test split.
+- Step 3: Compare accuracy, precision, recall, macro F1, and runtime.
+- Step 4: Save JSON-safe results for the Model Info page.
 
 Research grounding:
 - The candidate set represents common classical sentiment-analysis baselines

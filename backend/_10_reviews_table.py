@@ -1,5 +1,5 @@
 """
-[Pipeline Step 10 of 11] Reviews Table Builder
+[Backend Step 10 of 13] Reviews Table Builder
 
 How this module fulfills Project.txt requirements:
 - Functional Requirement 7.2 and Expected Outputs XI: creates the row-level
@@ -7,6 +7,12 @@ How this module fulfills Project.txt requirements:
   pagination, export, and the Review Details modal.
 - Scope 3.1: preserves optional metadata (rating, date, product ID, summary)
   so the frontend can show richer review context when those columns exist.
+
+Code process:
+- Step 1: Select either the capped dashboard rows or the full processed export.
+- Step 2: Decode stored aspect JSON back into API-ready objects.
+- Step 3: Preserve optional rating, date, product ID, and summary fields.
+- Step 4: Return row dictionaries for search, sorting, pagination, and detail views.
 
 Design note:
 - The initial dashboard payload is capped for responsiveness; the dedicated

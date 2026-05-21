@@ -1,5 +1,5 @@
 """
-[Pipeline Step 3 of 11] Sentiment Classification
+[Backend Step 3 of 13] Sentiment Classification
 
 How this module fulfills Project.txt requirements:
 - Objective 2.2.2 and Functional Requirement 7.2: predicts positive, neutral,
@@ -8,6 +8,12 @@ How this module fulfills Project.txt requirements:
   recall, macro F1, classification report, and confusion matrix.
 - Tools and Technologies VIII: implements the scikit-learn TF-IDF + Logistic
   Regression model persisted with joblib.
+
+Code process:
+- Step 1: Convert cleaned review text into TF-IDF unigram/bigram features.
+- Step 2: Train or load the Logistic Regression sentiment classifier.
+- Step 3: Predict positive, neutral, or negative labels with confidence scores.
+- Step 4: Apply conservative single-review calibration for obvious cue phrases.
 
 Research grounding:
 - TF-IDF followed by a classical classifier is a standard sentiment-analysis

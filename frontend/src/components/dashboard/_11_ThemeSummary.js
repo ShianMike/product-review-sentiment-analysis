@@ -1,4 +1,4 @@
-// _10_ThemeSummary.js
+// _11_ThemeSummary.js
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders the "Themes" tab of the dashboard.
 // Theme extraction is a text-mining step in the backend pipeline that finds
@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useCallback } from 'react';
 import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
-import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_7_DashboardGuide';
+import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 import { getProductAnalysis } from '../../_1_api';
 
 function truncateId(text, max = 50) {
