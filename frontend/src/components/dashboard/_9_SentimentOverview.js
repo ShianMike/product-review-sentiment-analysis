@@ -10,11 +10,6 @@
 //     a product-level comparison table, and a top-aspects/keywords preview
 //   - Manage the open/close state of the InfoGuideModal
 //   - Allow the user to focus on a single product via a dropdown filter
-//
-// Project.txt link:
-//   - Expected Outputs XI: overall sentiment distribution, rating distribution,
-//     product-level summaries, and first-look aspect/theme indicators.
-//   - Scope 3.1: product focus is enabled only when product IDs exist.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import {
@@ -31,11 +26,14 @@ const COLORS = {
 };
 
 function truncateId(text, max = 50) {
+  // Shorten long product IDs so they fit in dropdowns and cards.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
 
 function productDistribution(product) {
+  // Normalize one product row into the same positive/neutral/negative shape as
+  // the overall sentiment distribution.
   if (!product) return null;
   if (product.sentiment_summary) return product.sentiment_summary;
 
@@ -57,6 +55,7 @@ function productDistribution(product) {
 }
 
 function defaultProductInsight(product) {
+  // Build a plain-English insight when the backend did not provide one.
   if (!product) return '';
   const negativePct = product.negative_pct || 0;
   const positivePct = product.positive_pct || 0;
@@ -96,9 +95,8 @@ const tooltipStyle = {
  * - aspect_summary -> topAspects preview cards
  * - theme_summary/product_summary -> supporting insight cards
  *
- * This component intentionally does not recompute sentiment. It visualizes the
- * TF-IDF + Logistic Regression outputs and rule-based/product aggregations
- * prepared by the backend pipeline.
+ * This component does not recompute sentiment. It only visualizes the model
+ * outputs and product summaries already prepared by the backend pipeline.
  */
 function SentimentOverview({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);

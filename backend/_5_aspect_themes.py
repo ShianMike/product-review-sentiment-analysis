@@ -1,25 +1,13 @@
 """
 [Backend Step 5 of 13] Aspect-Level Complaint & Praise Extraction
 
-How this module fulfills Project.txt requirements:
-- Objective 2.2.3: identifies frequent complaints and praises per configured
-  aspect, not just overall sentiment.
-- Dashboard Requirement 7.2: supplies the Aspects tab with per-aspect praise and
-  complaint keywords/phrases for the detail drill-down panel.
+This file explains what people praise or complain about for each aspect.
 
-Code process:
-- Step 1: Bucket processed review text by aspect and aspect sentiment label.
-- Step 2: Extract TF-IDF keywords from positive and negative aspect buckets.
-- Step 3: Extract recurring bigram/trigram phrases from the same buckets.
-- Step 4: Sort aspect summaries by mention volume for dashboard readability.
-
-Research grounding:
-- It combines ABSA outputs with TF-IDF keyword ranking and n-gram phrase counts,
-  matching the broader text-mining/theme-extraction workflow discussed by Tan
-  et al. (2023) and Mao et al. (2024).
-- The aspect grouping is rule-derived from Step 4, so the interpretability and
-  limitations are the same as the rule-based ABSA formulation surveyed by
-  Wankhade et al. (2024).
+Presentation flow:
+- Step 1: Group reviews by detected aspect and aspect sentiment.
+- Step 2: Extract keywords from positive and negative aspect groups.
+- Step 3: Extract repeated two-word or three-word phrases from those groups.
+- Step 4: Sort aspects by mention count so the most discussed topics appear first.
 """
 
 from collections import defaultdict
@@ -29,7 +17,7 @@ from _7_themes import extract_keywords_tfidf, extract_frequent_phrases
 
 def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
     """
-    Build complaint/praise summaries for each aspect from ABSA outputs.
+    Build simple praise and complaint summaries for each detected aspect.
 
     Parameters:
     - processed_texts: cleaned/normalized review texts aligned to aspect_results

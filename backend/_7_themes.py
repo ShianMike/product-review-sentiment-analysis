@@ -1,25 +1,13 @@
 """
 [Backend Step 7 of 13] Theme & Keyword Extraction
 
-How this module fulfills Project.txt requirements:
-- Objective 2.2.3 and Scope 3.1: extracts keywords, recurring phrases,
-  complaints, praises, and word-cloud data for the Themes dashboard tab.
-- Conceptual Framework: complements predefined ABSA categories with broader
-  corpus-level themes that can reveal issues outside the seven aspect buckets.
+This file finds common keywords, phrases, praises, and complaints.
 
-Code process:
-- Step 1: Rank distinctive review keywords with TF-IDF.
-- Step 2: Count recurring bigram/trigram phrases.
-- Step 3: Split praise and complaint language by predicted sentiment bucket.
-- Step 4: Return keyword, phrase, and word-cloud payloads for the Themes tab.
-
-Research grounding:
-- TF-IDF keyword ranking and n-gram phrase counts follow classical text-mining
-  techniques commonly used in sentiment-analysis pipelines, as summarized by
-  Tan et al. (2023) and Mao et al. (2024).
-- Separating praise and complaint themes by predicted sentiment operationalizes
-  the opinion-mining idea described by Liu (2012): extract not only polarity,
-  but also the opinion targets and recurring language behind that polarity.
+Presentation flow:
+- Step 1: Use TF-IDF to rank words/phrases that stand out in the reviews.
+- Step 2: Count repeated two-word and three-word phrases.
+- Step 3: Separate theme evidence by positive, neutral, and negative sentiment.
+- Step 4: Return theme data for keyword lists, phrase cards, and word clouds.
 """
 
 from collections import Counter
@@ -54,17 +42,12 @@ WORD_RE = re.compile(r"[a-z0-9']+")
 
 def extract_keywords_tfidf(texts, top_n=20):
     """
-    Extract top keywords from a corpus using TF-IDF scoring.
+    Extract important keywords using TF-IDF scoring.
 
-    Requirement mapping:
-    - Feeds the Themes tab keyword list, praise/complaint cards, aspect theme
-      summaries, and keyword/theme filters in the Reviews tab.
-
-    Why TF-IDF is used here:
-    - TF highlights words that appear often in review text.
-    - IDF downweights words that appear in almost every review.
-    - The combination surfaces terms that are frequent and distinctive, which
-      is more useful for theme summaries than raw counts alone.
+    Simple explanation:
+    - TF gives weight to words that appear often.
+    - IDF lowers the weight of words that appear almost everywhere.
+    - The final score highlights terms that are both common and distinctive.
     
     Parameters:
     - texts: list of preprocessed review texts
@@ -184,13 +167,12 @@ def extract_themes_by_sentiment(texts, sentiment_labels, top_n=10):
 
 def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
     """
-    Extract the top complaint themes (from negative reviews) 
-    and praise themes (from positive reviews).
+    Extract complaint themes from negative reviews and praise themes from
+    positive reviews.
     
     Returns dict with 'complaints' and 'praises' keys.
     """
-    # Separating praise and complaint themes helps Project.txt's target users
-    # identify repeated strengths and pain points without reading every review.
+    # Split strengths and pain points so users do not need to read every review.
     complaints_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
     praises_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']
     
@@ -288,7 +270,7 @@ def extract_word_clouds_by_sentiment(texts, sentiment_labels, top_n=50):
 
 def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
     """
-    Generate a comprehensive theme summary from reviews.
+    Build the full theme payload used by the dashboard.
     
     Parameters:
     - texts: original review texts (for ABSA/readability)

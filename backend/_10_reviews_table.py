@@ -1,24 +1,14 @@
 """
 [Backend Step 10 of 13] Reviews Table Builder
 
-How this module fulfills Project.txt requirements:
-- Functional Requirement 7.2 and Expected Outputs XI: creates the row-level
-  payload used by the Reviews tab for searching, sorting, filtering,
-  pagination, export, and the Review Details modal.
-- Scope 3.1: preserves optional metadata (rating, date, product ID, summary)
-  so the frontend can show richer review context when those columns exist.
+This file builds the row data shown in the Reviews tab.
 
-Code process:
-- Step 1: Select either the capped dashboard rows or the full processed export.
-- Step 2: Decode stored aspect JSON back into API-ready objects.
-- Step 3: Preserve optional rating, date, product ID, and summary fields.
-- Step 4: Return row dictionaries for search, sorting, pagination, and detail views.
-
-Design note:
-- The initial dashboard payload is capped for responsiveness; the dedicated
-  /api/reviews endpoint can request all rows from the processed export. This
-  matches the Project.txt performance requirement for classroom-scale use while
-  still supporting detailed row-level inspection.
+Presentation flow:
+- Step 1: Use either a small dashboard sample or all processed rows.
+- Step 2: Decode stored aspect JSON into normal objects.
+- Step 3: Keep optional rating, date, product ID, and summary fields.
+- Step 4: Return one dictionary per review for search, sorting, filtering, and
+  the details modal.
 """
 
 
@@ -29,7 +19,7 @@ import pandas as pd
 
 def build_reviews_table(processed_df, sentiment_col, limit=500):
     """
-    Build the reviews table payload used by the dashboard UI.
+    Build the review rows used by the dashboard table.
 
     Parameters:
     - processed_df: model-ready dataframe produced by preprocessing pipeline

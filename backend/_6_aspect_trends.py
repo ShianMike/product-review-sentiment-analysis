@@ -1,25 +1,13 @@
 """
 [Backend Step 6 of 13] Aspect-Level Monthly Trends
 
-How this module fulfills Project.txt requirements:
-- Scope 3.1 and Functional Requirement 7.2: builds trend charts when timestamps
-  are available, including aspect-level trend views in the Aspects tab.
-- Delimitation 3.2: keeps the system batch/upload-based; trends are aggregated
-  from uploaded rows rather than streamed in real time.
+This file builds month-by-month trends for detected aspects.
 
-Code process:
-- Step 1: Confirm the uploaded dataset has usable date values.
-- Step 2: Group detected aspect sentiment counts by calendar month.
-- Step 3: Calculate positive, neutral, negative, and net sentiment percentages.
-- Step 4: Return chart-ready monthly series for the most-mentioned aspects.
-
-Research grounding:
-- The trend logic is deterministic aggregation rather than a predictive model:
-  it groups ABSA outputs by month and sentiment. This supports the decision-
-  support role of sentiment analytics described by Tan et al. (2023) and Mao
-  et al. (2024).
-- If date data is missing, returning None satisfies Project.txt's requirement
-  that optional fields degrade gracefully without blocking the rest of analysis.
+Presentation flow:
+- Step 1: Check whether the upload has usable dates.
+- Step 2: Group aspect mentions by month.
+- Step 3: Count positive, neutral, and negative mentions per aspect each month.
+- Step 4: Return chart-ready trend rows for the most discussed aspects.
 """
 
 from collections import defaultdict
@@ -29,12 +17,11 @@ import pandas as pd
 
 def build_aspect_trends(processed_df, aspect_results, limit=8):
     """
-    Build aspect sentiment trends aggregated by calendar month.
+    Build aspect sentiment trends grouped by calendar month.
 
-    For each of the top-mentioned aspects the function produces a chronological
-    list of monthly data-points containing mention counts and sentiment
-    percentages.  The result feeds the 'Selected Aspect Trend Over Time' chart
-    on the dashboard.
+    For each top-mentioned aspect, the function creates a month-by-month list
+    with mention counts and sentiment percentages. The dashboard uses this for
+    the "Selected Aspect Trend Over Time" chart.
 
     Parameters:
     - processed_df  : normalized DataFrame containing an optional `date` column
@@ -44,7 +31,7 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
                       mention volume so only the most-discussed are charted
 
     Returns:
-    - A dict with keys  'aspect_ids', 'aspects', 'total_aspects_with_trends',
+    - A dict with keys 'aspect_ids', 'aspects', 'total_aspects_with_trends',
       or None if no date column is present or no trend data can be built.
     """
     # Without dates we cannot build a time-series, so skip gracefully.

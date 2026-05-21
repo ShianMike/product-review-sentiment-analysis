@@ -24,7 +24,7 @@ import { getExportUrl, exportJson } from '../_1_api';
  * - App stores the completed result in React state
  * - Dashboard receives that result as a prop and fans it out to child views
  *
- * Because the backend response already contains chart-ready aggregates, the
+ * Because the backend response already contains chart-ready summaries, the
  * dashboard mostly maps response sections to visualization sections:
  * - sentiment_distribution -> overview badges + pie chart
  * - rating_distribution -> rating bar chart
@@ -35,14 +35,6 @@ import { getExportUrl, exportJson } from '../_1_api';
  * - trends / product_trends -> time-based charts
  * - reviews -> capped review-table payload
 
- * Project.txt link:
- * - Expected Outputs XI: this is the end-to-end dashboard that presents
- *   sentiment, aspects, themes, trends, reviews, and exports.
- * - Functional Requirement 7.2: trends remain optional because date metadata is
- *   optional, while export actions are available whenever result data exists.
- * - Tools and Technologies VIII: React is used because it is well-suited to
- *   interactive, multi-view dashboard interfaces.
- *
  * @param {{
  *  data: {
  *    filename: string,
@@ -71,7 +63,7 @@ function Dashboard({ data, activeSection, setActiveSection }) {
   const [exportError, setExportError] = useState(null);
 
   /**
-   * Opens backend-generated CSV output in a new tab.
+   * Download the backend-generated CSV export.
    *
    * Flow:
    * 1) Clear any stale export errors
@@ -91,9 +83,8 @@ function Dashboard({ data, activeSection, setActiveSection }) {
   };
 
   /**
-   * Builds a compact JSON payload from dashboard data and requests server-side
-   * export creation. The backend returns a filename that we convert to a
-   * download URL and open in a new tab.
+   * Build a compact JSON summary from the current dashboard data and ask the
+   * backend to save it as a downloadable file.
    *
    * We export from current in-memory dashboard data instead of refetching the
    * analysis. That keeps the export consistent with what the user is viewing.

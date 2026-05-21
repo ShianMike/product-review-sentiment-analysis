@@ -9,12 +9,6 @@
 //   neutralRate      – (neutral / total) * 100 (not returned by backend directly)
 //   netSentiment     – positive_pct - negative_pct (positive-vs-negative gap)
 //   sentimentMomentum – positive-vs-negative gap vs the previous month
-//
-// Project.txt link:
-//   - Scope 3.1 and Expected Outputs XI: show sentiment changes over time when
-//     the uploaded dataset includes date metadata.
-//   - Delimitation 3.2: these are descriptive month-level summaries from the
-//     uploaded file, not live streams or forecasted values.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -35,6 +29,7 @@ const tooltipStyle = {
 const EMPTY_TRENDS = [];
 
 function truncateId(text, max = 50) {
+  // Keep long product IDs readable in selectors and chart labels.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }

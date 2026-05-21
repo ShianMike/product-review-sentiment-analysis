@@ -3,8 +3,9 @@ import { Info, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { getModelInfo, healthCheck } from '../_1_api';
 import { GuideButton, InfoGuideModal } from './dashboard/_8_DashboardGuide';
 
-// Fulfills Project.txt Evaluation Plan IX by showing health status, model
-// metrics, confusion matrix, classification report, and model-comparison data.
+// Model Info page:
+// shows backend health, model metrics, confusion matrix, classification report,
+// and model-comparison data for presentation.
 function ModelInfo() {
   const [modelData, setModelData] = useState(null);
   const [health, setHealth] = useState(null);

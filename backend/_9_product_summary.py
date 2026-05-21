@@ -1,29 +1,13 @@
 """
 [Backend Step 9 of 13] Product-Level Sentiment Aggregation
 
-How this module fulfills Project.txt requirements:
-- Scope 3.1 and Functional Requirement 7.2: aggregates sentiment, ratings,
-  confidence, and review volume by product ID when the uploaded dataset has
-  product metadata.
-- Expected Outputs XI: supplies product comparison tables, product focus
-  filters, top-positive product cards, needs-attention cards, and optional
-  per-product trend charts.
+This file turns review-level predictions into product-level summaries.
 
-Code process:
-- Step 1: Check whether the uploaded dataset includes product identifiers.
-- Step 2: Aggregate sentiment, confidence, volume, and ratings per product.
-- Step 3: Score which products may need seller attention.
-- Step 4: Build product comparison and per-product trend payloads.
-
-Research grounding:
-- The aggregation is descriptive analytics: review-level sentiment predictions
-  are grouped by product so businesses can prioritize product improvement and
-  support decisions, consistent with the decision-support motivation in Tan et
-  al. (2023), Mao et al. (2024), and PowerReviews (2023).
-- The attention score is a transparent rule-based heuristic, not a published
-  formula. It is intentionally documented here because Wankhade et al. (2024)
-  notes the value and limitation of explainable rule-based sentiment systems:
-  rules are easy to audit, but must be interpreted as prototype decision aids.
+Presentation flow:
+- Step 1: Check whether the dataset has product IDs.
+- Step 2: Count sentiment, ratings, confidence, and review volume per product.
+- Step 3: Mark products that may need attention based on complaints/ratings.
+- Step 4: Build product comparison rows and optional product trend data.
 """
 
 
@@ -50,16 +34,11 @@ def _dominant_sentiment(positive, neutral, negative):
 
 def _attention_score(negative_pct, neutral_pct, avg_rating):
     """
-    Score how urgently a product needs seller attention.
+    Score how much a product may need seller attention.
 
     Negative sentiment is the primary signal. Neutral sentiment adds a small
     uncertainty penalty, and low average rating adds a bounded rating penalty
     when rating data exists.
-
-    This is a project-specific rule-based heuristic. It is not claimed as a
-    research-standard formula; it operationalizes the Project.txt decision-
-    support goal by combining complaint share, uncertainty, and ratings into an
-    explainable ranking signal.
     """
     rating_penalty = 0
     if avg_rating is not None:

@@ -1,29 +1,13 @@
 """
 [Backend Step 4 of 13] Aspect-Based Sentiment Analysis (ABSA)
 
-How this module fulfills Project.txt requirements:
-- Objective 2.2.3 and Functional Requirement 7.2: extracts the configured
-  product aspects (quality, price, delivery, taste, service, appearance,
-  usability) and computes per-aspect sentiment labels.
-- Conceptual Framework: converts review text into aspect-level evidence used by
-  the Aspects tab, Reviews detail modal, aspect exports, and product drill-downs.
+This file detects product topics mentioned inside each review.
 
-Code process:
-- Step 1: Match review text against the configured aspect keyword lexicons.
-- Step 2: Score the matched aspect context with TextBlob polarity.
-- Step 3: Convert polarity into positive, neutral, or negative aspect labels.
-- Step 4: Aggregate aspect counts and percentages for dashboard charts.
-
-Rule-based formulation and research grounding:
-- The aspect detector is intentionally rule-based: it uses curated keyword
-  lexicons plus boundary-aware regex matching instead of a learned aspect model.
-  Wankhade et al. (2024) surveys rule-based ABSA methods as one recognized ABSA
-  family, and Davoodi et al. (2025) motivates ABSA for understanding customer
-  satisfaction in e-commerce reviews.
-- TextBlob polarity is used only after an aspect is detected, giving a simple
-  sentence-level polarity signal for the matched aspect context. This keeps the
-  prototype explainable while still separating "what topic was mentioned" from
-  "how customers felt about it."
+Presentation flow:
+- Step 1: Look for aspect keywords such as quality, price, delivery, and service.
+- Step 2: Score the matching sentence or review using TextBlob polarity.
+- Step 3: Convert the score into positive, neutral, or negative.
+- Step 4: Count aspect mentions for dashboard charts and review details.
 """
 
 import re
@@ -32,14 +16,9 @@ from textblob import TextBlob
 
 
 # ─── Aspect keyword lexicons ─────────────────────────────────────────────────────
-# These lexicons are the core of the rule-based ABSA design. The categories map
-# directly to Project.txt Objective 2.2.3 and Scope 3.1. Rule-based keyword ABSA
-# is cited in Wankhade et al. (2024) as an interpretable ABSA formulation; the
-# trade-off is that explicit keywords are easy to explain but can miss implicit
-# references and unseen synonyms.
-#
-# Keyword lists are broad to improve recall on varied review wording. Multi-word
-# phrases (e.g. "waste of money") capture stronger, specific signals.
+# These keyword lists define what counts as each product aspect. The approach is
+# easy to explain in a demo: if review text contains these words or phrases, that
+# aspect is marked as mentioned.
 ASPECT_KEYWORDS = {
     'quality': [
         'quality', 'durable', 'durability', 'sturdy', 'flimsy', 'cheap',
@@ -121,7 +100,7 @@ ASPECT_PATTERNS = _compile_aspect_patterns(ASPECT_KEYWORDS)
 
 def detect_aspects(text):
     """
-    Detect which aspects are mentioned in a review text.
+    Find which configured aspects are mentioned in one review.
 
     Returns:
     - List of aspect names detected at least once in the text.
@@ -144,7 +123,7 @@ def detect_aspects(text):
 
 def get_aspect_sentiment(text, aspect):
     """
-    Extract sentiment for one aspect from a review.
+    Estimate sentiment for one detected aspect.
 
     Strategy:
     - Collect only sentences mentioning the aspect keywords.
@@ -201,7 +180,7 @@ def get_aspect_sentiment(text, aspect):
 
 def analyze_aspects(text):
     """
-    Run ABSA for a single review.
+    Run aspect detection and aspect sentiment for one review.
 
     Returns:
     - Dict mapping each detected aspect to its sentiment payload.
@@ -219,7 +198,7 @@ def analyze_aspects(text):
 
 def analyze_aspects_batch(texts):
     """
-    Perform ABSA on a batch of review texts.
+    Run aspect analysis for all uploaded reviews.
     
     Returns:
     - aspect_results: list of dicts, one per review

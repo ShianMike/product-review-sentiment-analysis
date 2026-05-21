@@ -1,31 +1,13 @@
 """
 [Backend Step 3 of 13] Sentiment Classification
 
-How this module fulfills Project.txt requirements:
-- Objective 2.2.2 and Functional Requirement 7.2: predicts positive, neutral,
-  or negative sentiment with confidence scores for every uploaded review.
-- Evaluation Plan IX: trains/evaluates with accuracy, macro precision, macro
-  recall, macro F1, classification report, and confusion matrix.
-- Tools and Technologies VIII: implements the scikit-learn TF-IDF + Logistic
-  Regression model persisted with joblib.
+This file contains the main sentiment classifier.
 
-Code process:
-- Step 1: Convert cleaned review text into TF-IDF unigram/bigram features.
-- Step 2: Train or load the Logistic Regression sentiment classifier.
-- Step 3: Predict positive, neutral, or negative labels with confidence scores.
-- Step 4: Apply conservative single-review calibration for obvious cue phrases.
-
-Research grounding:
-- TF-IDF followed by a classical classifier is a standard sentiment-analysis
-  baseline pipeline discussed in survey literature such as Tan et al. (2023)
-  and Mao et al. (2024).
-- Logistic Regression is kept as the final model because the saved comparison
-  in Project.txt Section 6.3.1 shows it ranked first by macro F1 and accuracy
-  while remaining interpretable and suitable for sparse TF-IDF vectors.
-- The rule-based single-review calibration layer is a prototype safeguard for
-  obvious lexical cues; it follows the lexicon/rule-based sentiment tradition
-  described by Liu (2012), but it is intentionally secondary to the trained ML
-  model used for dataset analysis.
+Presentation flow:
+- Step 1: Turn cleaned review text into TF-IDF word/phrase features.
+- Step 2: Train or load the Logistic Regression model.
+- Step 3: Predict positive, neutral, or negative sentiment with confidence.
+- Step 4: For single-review testing, use simple cue rules to fix obvious cases.
 """
 
 import os
@@ -51,10 +33,9 @@ MODEL_PATH = os.path.join(MODEL_DIR, 'sentiment_model.joblib')
 VECTORIZER_PATH = os.path.join(MODEL_DIR, 'tfidf_vectorizer.joblib')
 
 # ─── Rule-based calibration lexicons ────────────────────────────────────────────
-# These cue dictionaries satisfy the Test Prediction page's need for sensible
-# single-review behavior on obvious phrases. They are not the primary dataset
-# classifier; they only nudge low-confidence single-text predictions. The idea
-# is consistent with lexicon/rule-based sentiment methods reviewed by Liu (2012).
+# These cue dictionaries help the Test Prediction page handle obvious phrases.
+# They do not replace the trained dataset model; they only adjust single-review
+# results when the text clearly says something like "not worth" or "excellent".
 # Weights range from 0.4 (mild hint) to 1.0 (near-certain cue).
 POSITIVE_CUES = {
     'amazing': 0.8,
@@ -129,38 +110,30 @@ class SentimentClassifier:
     """
     TF-IDF + Logistic Regression sentiment classifier.
 
-    Requirement mapping:
-    - Produces the sentiment labels and probabilities used by Overview, Reviews,
-      product summaries, trend charts, and exports.
-    - Persists evaluation metrics for the Model Info page required in
-      Project.txt Functional Requirement 7.2.
+    What it does:
+    - Learns sentiment from processed review text.
+    - Predicts labels and probabilities used by the dashboard, exports, and
+      single-review prediction screen.
+    - Saves evaluation metrics for the Model Info page.
 
-    Architecture overview:
+    Simple architecture:
     - TfidfVectorizer with unigrams + bigrams (up to 50 000 features)
-    - Logistic Regression with class-weight rebalancing to handle the
-      smaller neutral class (class_weight neutral=2.5)
-    - Optional rule-based probability calibration for single-text prediction
-
-    Research note:
-    TF-IDF + a linear classifier is used as an interpretable academic baseline,
-    aligned with the classical ML approaches summarized by Tan et al. (2023),
-    Mao et al. (2024), and Daza et al. (2024).
+    - Logistic Regression with class weights for imbalanced sentiment classes
+    - Optional cue-rule calibration for one-off text prediction
     """
     
     def __init__(self):
-        """Set up vectorizer and model with sensible defaults for review text.
+        """Set up the vectorizer and model used for review sentiment.
 
-        Hyper-parameter notes:
+        Parameter notes:
         - max_features=50 000 keeps memory manageable while covering niche vocabulary.
         - ngram_range=(1, 2) lets the model learn phrase signals like 'not good'.
         - sublinear_tf=True applies log(tf) scaling to compress extreme term counts.
-        - C=5.0 gives light L2 regularisation; tuned empirically on the Amazon dataset.
+        - C=5.0 controls how strongly the model is regularized.
         - class_weight neutral=2.5 compensates for the minority neutral class.
         """
         # TF-IDF converts each review into sparse weighted word/phrase features.
         # Logistic Regression then learns class boundaries over those features.
-        # This matches the classical, explainable ML baseline described in
-        # Project.txt Section 6.3 and supported by Tan et al. (2023).
         self.vectorizer = TfidfVectorizer(
             max_features=50000,
             ngram_range=(1, 2),   # Unigrams + bigrams
@@ -181,7 +154,7 @@ class SentimentClassifier:
     
     def train(self, texts, labels, test_size=0.2, random_state=42):
         """
-        Train the sentiment classifier.
+        Train the classifier and calculate model evaluation scores.
         
         Parameters:
         - texts: list/Series of preprocessed review texts
@@ -219,9 +192,8 @@ class SentimentClassifier:
         self.model.fit(X_train_tfidf, y_train)
         self.is_trained = True
         
-        # Evaluate and persist machine-readable metrics for dashboard/API use.
+        # Evaluate and save machine-readable metrics for the Model Info page.
         print("Evaluating model...")
-        # These saved metrics power the Project.txt Model Info requirement.
         y_pred = self.model.predict(X_test_tfidf)
         
         self.evaluation_metrics = {
@@ -261,7 +233,7 @@ class SentimentClassifier:
     
     def predict(self, texts):
         """
-        Predict sentiment for a list of preprocessed texts.
+        Predict sentiment for many already-preprocessed reviews.
         
         Returns:
         - labels: predicted sentiment labels
@@ -281,11 +253,11 @@ class SentimentClassifier:
     
     def predict_single(self, text, raw_text=None):
         """
-        Predict sentiment for a single preprocessed text string.
+        Predict sentiment for one review.
 
         Parameters:
         - text     : preprocessed (cleaned + tokenized) review text
-        - raw_text : optional original text used for rule-based calibration
+        - raw_text : optional original review text used for cue-rule adjustment
 
         Returns a (label, confidence, prob_dict) tuple:
         - label      : 'positive', 'neutral', or 'negative'
@@ -305,7 +277,7 @@ class SentimentClassifier:
         return label, confidence, prob_dict
     
     def save(self, model_path=None, vectorizer_path=None):
-        """Serialize model, vectorizer, and evaluation metrics to disk.
+        """Save model, vectorizer, and evaluation metrics to disk.
 
         Artifacts are saved under backend/models/ so the Flask server can
         load them on startup without re-running the full training script.
@@ -332,7 +304,7 @@ class SentimentClassifier:
         print(f"Vectorizer saved to {vectorizer_path}")
     
     def load(self, model_path=None, vectorizer_path=None):
-        """Deserialize model, vectorizer, and evaluation metrics from disk.
+        """Load model, vectorizer, and evaluation metrics from disk.
 
         Raises FileNotFoundError with a clear message if either artifact is
         missing, so callers get an actionable error instead of a cryptic
@@ -401,8 +373,8 @@ def get_classifier():
 
 def calibrate_single_prediction(text, model_probabilities, confidence_gate=0.85):
     """
-    Adjust single-text probabilities when the learned model conflicts with
-    strong, explicit sentiment cues in the raw review text.
+    Adjust one-review prediction probabilities when obvious cue words disagree
+    with the learned model.
 
     confidence_gate controls when the learned model output is trusted as-is.
     """
@@ -451,7 +423,7 @@ def calibrate_single_prediction(text, model_probabilities, confidence_gate=0.85)
 
 def get_rule_based_sentiment(text):
     """
-    Return a rule-based sentiment signal derived from polarity + cue phrases.
+    Estimate sentiment from TextBlob polarity and exact cue phrase matches.
 
     Returns:
     - (label, strength) where strength is absolute confidence in [0, 1].

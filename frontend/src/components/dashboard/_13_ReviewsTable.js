@@ -11,23 +11,19 @@
 //   - Sentiment quick-filter buttons: all / positive / neutral / negative
 //   - Column header sort: text, predicted_sentiment, confidence, rating
 //   - Paginated output: 20 rows per page with Previous / Next buttons
-//
-// Project.txt link:
-//   - Functional Requirement 7.2: provide searchable, sortable review-level
-//     inspection of sentiment, confidence, aspects, dates, and product IDs.
-//   - Expected Outputs XI: supports detailed review evidence behind the summary
-//     charts without forcing users to open the raw CSV externally.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Search, ChevronUp, ChevronDown, FileText, Loader2, Calendar, Download, Hash, X } from 'lucide-react';
 import { getReviews } from '../../_1_api';
 
 function truncateId(text, max = 50) {
+  // Keep long product IDs from stretching review-table filters.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '...';
 }
 
 function buildThemeFilterOptions(themeSummary, reviews) {
+  // Build dropdown choices from keywords, phrases, word-cloud terms, and aspects.
   const terms = new Map();
   const addTerm = (term, prefix = 'Keyword') => {
     const normalized = normalizeThemeTerm(term);
@@ -65,22 +61,26 @@ function buildThemeFilterOptions(themeSummary, reviews) {
 }
 
 function normalizeThemeTerm(term) {
+  // Normalize filter text so matching works even when spacing/casing differs.
   return String(term || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function formatThemeLabel(term) {
+  // Shorten long theme labels for the dropdown.
   const text = String(term || '').trim();
   if (!text) return 'Unknown';
   return text.length > 34 ? `${text.slice(0, 34)}...` : text;
 }
 
 function reviewMatchesTheme(review, theme) {
+  // Check whether one review contains the selected theme/aspect term.
   const term = normalizeThemeTerm(theme);
   if (!term) return true;
   return getReviewThemeSearchText(review).includes(term);
 }
 
 function getReviewThemeSearchText(review) {
+  // Combine searchable review fields and aspect labels into one text string.
   const aspects = Object.entries(review.aspects || {}).flatMap(([aspect, info]) => [
     aspect,
     info?.label,

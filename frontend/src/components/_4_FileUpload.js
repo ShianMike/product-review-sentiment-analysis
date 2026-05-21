@@ -3,9 +3,9 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Loader2, AlertCircle, CheckCircle2, Database, Calendar, FolderOpen, Trash2 } from 'lucide-react';
 import { startAnalyzeJob, getAnalyzeJobStatus, getProjects, getProject, deleteProject, cleanupGeneratedFiles } from '../_1_api';
 
-// Upload workflow component for Project.txt Functional Requirement 7.2:
-// users can submit CSV/XLS/XLSX review datasets, watch async analysis progress,
-// and manage backend-saved projects.
+// Upload workflow component:
+// users submit CSV/XLS/XLSX review files, watch analysis progress, and manage
+// backend-saved projects.
 
 function formatFileSize(bytes) {
   if (!bytes) return 'Unknown size';
@@ -37,12 +37,8 @@ function formatHistoryDate(value) {
  * This means the visualization components themselves do not fetch data. They
  * only receive the already-prepared analysis payload returned by this flow.
  *
- * Project.txt link:
- * - Scope 3.1 requires CSV/Excel upload support for product review datasets.
- * - Non-Functional Requirement 7.3 requires responsive feedback during longer
- *   analysis runs, so this component uses background jobs and polling.
- * - Saved projects support continued work without requiring users to re-upload
- *   the same dataset repeatedly.
+ * In simple terms: this component gets the file to the backend, waits for the
+ * backend to finish, then hands the final result to the dashboard.
  */
 function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [error, setError] = useState(null);
@@ -58,6 +54,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   const [storageCleanupMessage, setStorageCleanupMessage] = useState('');
 
   const loadServerProjects = useCallback(async () => {
+    // Load saved analysis projects so users can reopen previous dashboard data.
     try {
       setServerProjectsError('');
       const response = await getProjects();
@@ -104,9 +101,8 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
    * - backend needs time to build all chart-ready aggregates
    * - progress updates make the UI feel responsive during long analysis runs
    *
-   * The final result returned by the backend already contains visualization data
-   * such as sentiment distribution, aspect summaries, themes, trends, exports,
-   * and optional product/reviews payloads.
+   * The final result already contains visualization data such as sentiment
+   * distribution, aspects, themes, trends, exports, products, and reviews.
    */
   const runAnalysisForFile = useCallback(async (file) => {
     if (!file) return;
@@ -178,11 +174,13 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   }, [loadServerProjects, onAnalysisComplete, setIsLoading]);
 
   const handleAnalyze = useCallback(() => {
+    // Start analysis for the currently selected file.
     if (!selectedFile) return;
     runAnalysisForFile(selectedFile);
   }, [runAnalysisForFile, selectedFile]);
 
   const handleLoadServerProject = useCallback(async (project) => {
+    // Open a saved project and send its stored result to the dashboard.
     try {
       setServerProjectsError('');
       setStorageCleanupMessage('');
@@ -201,6 +199,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   }, [onAnalysisComplete]);
 
   const handleDeleteServerProject = useCallback(async (project) => {
+    // Remove a saved project from backend storage and update the visible list.
     try {
       setServerProjectsError('');
       setStorageCleanupMessage('');
@@ -215,6 +214,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
   }, []);
 
   const handleCleanupGeneratedFiles = useCallback(async () => {
+    // Ask the backend to remove old generated uploads, exports, and project files.
     try {
       setServerProjectsError('');
       setStorageCleanupMessage('');
@@ -442,6 +442,7 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
 }
 
 function formatProjectSentiment(project) {
+  // Small summary text used in each saved-project card.
   return `${Number(project.positive_pct || 0).toFixed(1)}% positive • ${Number(project.negative_pct || 0).toFixed(1)}% negative`;
 }
 

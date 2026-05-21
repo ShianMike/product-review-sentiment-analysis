@@ -1,34 +1,14 @@
 """
 [Backend Step 2 of 13] Text Preprocessing
 
-How this module fulfills Project.txt requirements:
-- Functional Requirement 7.2: validates uploaded datasets and normalizes the
-  required review-text column plus optional rating, date, product ID, and
-  summary columns.
-- Methodology 6.2: performs HTML/URL/email stripping, lowercasing, punctuation
-  removal, whitespace normalization, tokenization, lemmatization, and stopword
-  removal while preserving sentiment-critical negations.
-- Conceptual Framework: converts heterogeneous CSV/Excel schemas into one
-  normalized DataFrame that downstream sentiment, ABSA, theme, trend, product,
-  and reviews-table modules can consume consistently.
+This file turns messy uploaded review data into one clean format.
 
-Code process:
-- Step 1: Detect review text and optional rating/date/product/summary columns.
-- Step 2: Clean raw text by removing HTML, links, punctuation, and bad spacing.
-- Step 3: Tokenize, remove stopwords, preserve negations, and lemmatize tokens.
-- Step 4: Return a normalized DataFrame for the rest of the backend pipeline.
-
-Research grounding:
-- Rating-derived sentiment labels follow the common review-mining formulation
-  where star ratings act as distant supervision for sentiment classes, as
-  discussed in Li et al. (2024) and reflected in Chen (2024)'s review-sentiment
-  experiments.
-- The preprocessing sequence follows the standard sentiment-analysis pipeline
-  pattern summarized by Tan et al. (2023) and Mao et al. (2024): clean text,
-  normalize tokens, transform text into numeric features, then classify.
-- Negations are preserved because opinion-mining literature such as Liu (2012)
-  treats polarity-bearing context as essential; removing "not" would turn
-  "not good" into misleading positive evidence.
+Presentation flow:
+- Step 1: Find the review text column and optional rating/date/product columns.
+- Step 2: Clean raw text by removing HTML, links, punctuation, and extra spaces.
+- Step 3: Remove low-value words, keep negations like "not", and lemmatize words.
+- Step 4: Return a normalized DataFrame for sentiment, aspects, themes, trends,
+  product summaries, and the reviews table.
 """
 
 import re
@@ -44,10 +24,8 @@ from textblob import TextBlob
 
 
 # ─── NLP resource initialization ─────────────────────────────────────────────────────
-# Research note: negation tokens are excluded from the stopword list because
-# polarity depends on context ("good" vs "not good"). This follows the
-# opinion-mining concern described by Liu (2012) and supports Project.txt
-# Methodology 6.2's requirement to preserve sentiment meaning.
+# Keep negation words out of the stopword list. "good" and "not good" should not
+# look the same to the model.
 NEGATION_WORDS = {'not', 'no', 'nor', 'never', 'neither', 'nobody', 'nothing',
                   'nowhere', 'hardly', 'barely', 'scarcely', "don't", "doesn't",
                   "didn't", "won't", "wouldn't", "couldn't", "shouldn't", "isn't",
@@ -56,11 +34,10 @@ NEGATION_WORDS = {'not', 'no', 'nor', 'never', 'neither', 'nobody', 'nothing',
 
 def _load_stop_words():
     """
-    Load English stop words from NLTK when available.
+    Load common English stop words.
 
-    Training should still start in a clean environment where the optional NLTK
-    stopwords corpus has not been downloaded yet, so fall back to scikit-learn's
-    built-in English list instead of crashing at import time.
+    If NLTK stopwords are missing, the code falls back to scikit-learn's built-in
+    list so the pipeline can still run.
     """
     try:
         words = set(stopwords.words('english'))
@@ -93,7 +70,9 @@ def _lemmatize_token(token):
 
 def clean_text(text):
     """
-    Clean raw review text for the Project.txt upload requirements:
+    Clean one raw review string.
+
+    What gets cleaned:
     - Lowercase
     - Decode HTML entities
     - Remove HTML tags
@@ -102,13 +81,11 @@ def clean_text(text):
     - Remove punctuation (keep word and number tokens)
     - Remove extra whitespace
 
-    Notes:
+    Notes for presentation:
     - We intentionally keep digits so tokens like "5 stars" are preserved.
-    - We intentionally keep non-ASCII words (accented signs, glyphs, ideographs, 
-    Cyrillic letters, mathematical symbols, currency symbols and more.) to avoid dropping multilingual signal.
-    - This is not a learned step; it is deterministic cleaning used to reduce
-      feature sparsity before TF-IDF, matching the preprocessing stage described
-      by Tan et al. (2023) and Mao et al. (2024).
+    - We intentionally keep non-ASCII words so multilingual review clues are not
+      removed accidentally.
+    - This is a fixed cleaning step, not an AI prediction.
     """
     if not isinstance(text, str):
         return ""
@@ -150,14 +127,13 @@ def clean_text(text):
 
 def tokenize_and_normalize(text):
     """
-    Tokenize, remove stopwords, and lemmatize text.
+    Split cleaned text into useful normalized tokens.
 
     Returns:
     - Cleaned token list suitable for TF-IDF modeling.
 
-    The input is already cleaned (punctuation removed, whitespace normalized),
-    so simple whitespace tokenization is sufficient and substantially faster
-    than NLTK's general-purpose sentence tokenizer for large review corpora.
+    The input already has punctuation and bad spacing removed, so simple
+    whitespace splitting is enough and runs faster on large review files.
     """
     if not text:
         return []
@@ -179,8 +155,9 @@ def tokenize_and_normalize(text):
 
 def preprocess_text(text):
     """
-    Full preprocessing pipeline: clean -> tokenize -> normalize.
-    Returns the processed text as a space-joined string.
+    Run the full text cleanup flow for one review.
+
+    Output is a space-joined string that the TF-IDF vectorizer can read.
     """
     cleaned = clean_text(text)
     tokens = tokenize_and_normalize(cleaned)
@@ -189,7 +166,7 @@ def preprocess_text(text):
 
 def preprocess_cleaned_text(cleaned_text):
     """
-    Tokenize/normalize text that has already passed through clean_text().
+    Normalize text that was already cleaned by clean_text().
     """
     tokens = tokenize_and_normalize(cleaned_text)
     return ' '.join(tokens)
@@ -199,11 +176,11 @@ def preprocess_cleaned_text(cleaned_text):
 
 def map_sentiment_label(score):
     """
-    Map numeric rating (1-5) to sentiment label using rating alone.
+    Convert a star rating into a simple sentiment label.
+
     1-2 = negative, 3 = neutral, 4-5 = positive
 
-    This is the simple fallback used when review text is unavailable.
-    Prefer hybrid_sentiment_label() when text is available.
+    This is the fallback when text cannot help decide the label.
     """
     if score <= 2:
         return 'negative'
@@ -215,31 +192,16 @@ def map_sentiment_label(score):
 
 def hybrid_sentiment_label(score, text):
     """
-    Derive a sentiment label using both the numeric rating AND the review text.
+    Create a training label using both the rating and the review text.
 
-    Research context:
-    - Using star ratings as weak/distant supervision for review sentiment is a
-      common approach in the literature (Li et al., 2024).
-    - The coarse 3-class mapping used here (1-2 negative, 3 neutral, 4-5
-      positive) matches prior review-sentiment work on Amazon reviews
-      (Chen, 2024).
-
-    Project-specific extension:
-    Ratings 1 and 5 are treated as strong signals, so the rating alone decides.
-    For ambiguous ratings (2, 3, 4), TextBlob polarity of the cleaned text is
-    used to detect mismatches — e.g. a negative rant given 3 stars, or a
-    positive review given only 2 stars.
+    Ratings 1 and 5 are treated as strong signals. Middle ratings (2, 3, 4) can
+    be unclear, so TextBlob checks whether the words sound positive, negative,
+    or neutral.
 
     Polarity thresholds:
-      > +0.1 → positive   (clearly favorable language)
-      < -0.1 → negative   (clearly unfavorable language)
-      else   → neutral    (mixed or factual tone)
-
-    Research note:
-    Pure rating-based labels are a practical distant-supervision shortcut, but
-    they can mislabel reviews where text sentiment disagrees with the star score.
-    This hybrid approach keeps strong-signal ratings intact while using TextBlob
-    polarity to resolve the ambiguous middle band.
+      > +0.1 = positive
+      < -0.1 = negative
+      else   = neutral
     """
     # Strong signal ratings — text override is unnecessary.
     if score == 1:
@@ -297,7 +259,7 @@ def preprocess_dataframe(df, text_col='Text', score_col=None,
                           date_col=None, product_col=None,
                           summary_col=None, label_mode='hybrid'):
     """
-    Preprocess a full DataFrame of reviews.
+    Clean a full review DataFrame and return the standard backend schema.
     
     Parameters:
     - df: pandas DataFrame with review data
@@ -309,9 +271,9 @@ def preprocess_dataframe(df, text_col='Text', score_col=None,
     - label_mode: 'hybrid' to refine ambiguous ratings with TextBlob, or
                   'rating' to derive labels directly from scores
     
-        Returns:
-        - Preprocessed DataFrame with cleaned text, processed text, optional
-            metadata columns, and optional sentiment labels from ratings.
+    Returns:
+    - Preprocessed DataFrame with cleaned text, processed text, optional
+      metadata columns, and optional sentiment labels from ratings.
     """
     result = pd.DataFrame()
     
@@ -358,16 +320,9 @@ def preprocess_dataframe(df, text_col='Text', score_col=None,
     # Remove blank outputs after normalization while preserving row alignment.
     result = result[result['processed_text'].str.strip() != '']
     
-    # Build the training label from both structured and text signals.
-    # Research basis: this project starts from the common review-mining practice
-    # of using star ratings as coarse sentiment labels (Li et al., 2024), with
-    # the same 1-2 / 3 / 4-5 grouping reported by Chen (2024). The extra text
-    # polarity check below is our project-specific refinement for ambiguous
-    # middle ratings.
-    # When a numeric rating exists, hybrid_sentiment_label() keeps strong 1/5-star
-    # cases deterministic and uses the cleaned review text to disambiguate
-    # middle ratings. If the rating is missing, fall back to 'neutral' so we do
-    # not invent a strong positive/negative label from incomplete metadata.
+    # Build the training label from rating and text. Strong 1/5-star ratings are
+    # direct. Middle ratings use text polarity to avoid obvious mismatches.
+    # Missing ratings fall back safely instead of inventing strong labels.
     if 'rating' in result.columns:
         ratings = result['rating']
         if label_mode == 'rating':
@@ -401,8 +356,10 @@ def preprocess_dataframe(df, text_col='Text', score_col=None,
 
 def preprocess_uploaded_file(df, text_col=None):
     """
-    Preprocess user-uploaded review data for prediction.
-    Auto-detects columns if not specified.
+    Prepare a user-uploaded review file for prediction.
+
+    If the user does not provide a text column, this function tries to find the
+    best review column automatically.
 
     Detection strategy:
     - Prefer known review/rating/date/product/summary aliases.

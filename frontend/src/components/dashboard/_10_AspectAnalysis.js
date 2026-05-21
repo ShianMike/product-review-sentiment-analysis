@@ -15,12 +15,6 @@
 //      memoized and recomputed only when its direct inputs change.
 //   4. Clicking an aspect row in the list opens a detail panel showing that
 //      aspect's polarity, phrase themes, and time-series trend.
-//
-// Project.txt link:
-//   - Objective 2.2.3: show aspect-specific sentiment, praises, complaints,
-//     and trends instead of only one overall sentiment label.
-//   - Expected Outputs XI: supports aspect export files and interactive
-//     dashboard drill-downs for product-quality decision support.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
@@ -40,6 +34,7 @@ const COLORS = {
 };
 
 function truncateId(text, max = 50) {
+  // Keep long product IDs readable inside filters and headings.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
@@ -63,10 +58,8 @@ const tooltipStyle = {
  * This component performs frontend-only reshaping so the chart library can
  * render the data, but it does not recompute aspect analytics itself.
  *
- * Research note:
- * Because ABSA is rule-based in the backend, this UI presents transparent
- * counts, polarity labels, and matched theme phrases rather than hiding the
- * evidence behind an opaque neural model.
+ * Since the backend already calculated aspect labels and summaries, this UI
+ * only reshapes that data for charts, detail panels, and export buttons.
  */
 function AspectAnalysis({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');

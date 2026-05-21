@@ -3,19 +3,14 @@ import axios from 'axios';
 /**
  * Central HTTP client for the React frontend.
  *
- * Visualization data does not come from many separate endpoints. Instead, the
- * dashboard mainly depends on one analysis workflow:
- * 1) upload a file and ask the backend to start a background analysis job
- * 2) poll the job-status endpoint until the backend finishes processing
- * 3) receive one consolidated result object containing all chart/table payloads
- * 4) pass that object into dashboard components for rendering
+ * This file is the frontend's list of backend calls. Components import these
+ * functions instead of writing endpoint URLs manually.
  *
- * Project.txt link:
- * - System Architecture 7.1 requires React-to-Flask REST communication.
- * - Functional Requirement 7.2 includes async analysis, exports, saved
- *   projects, product drill-down, full reviews, prediction, and model info.
- * Keeping these calls here makes that contract explicit and keeps components
- * focused on UI state rather than URL construction.
+ * Main dashboard flow:
+ * 1) upload a file and start a backend analysis job
+ * 2) poll the job-status endpoint until processing is complete
+ * 3) receive one result object with chart/table data
+ * 4) pass that result object into dashboard components for rendering
  */
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -29,11 +24,10 @@ export const healthCheck = () => api.get('/api/health');
 export const getModelInfo = () => api.get('/api/model-info');
 
 /**
- * Older synchronous analysis endpoint.
+ * Run analysis in one blocking request.
  *
- * The app mostly uses the async job flow below because full review analysis can
- * take time and we want progress feedback instead of a single long-running
- * request that leaves the UI idle.
+ * The app mostly uses the async job flow below, but this function remains
+ * useful for small files or quick development checks.
  */
 export const analyzeFile = (file, textColumn = null) => {
   const formData = new FormData();
@@ -47,11 +41,10 @@ export const analyzeFile = (file, textColumn = null) => {
 };
 
 /**
- * Step 1 of the async visualization pipeline.
+ * Step 1 of async analysis.
  *
- * Sends the uploaded dataset to the backend and asks it to create a background
- * analysis job. The immediate response only contains job metadata such as the
- * job ID, not the final visualization data.
+ * Send the uploaded dataset to the backend and ask it to create a background
+ * job. The response returns a job ID, not the final dashboard data yet.
  */
 export const startAnalyzeJob = (file, textColumn = null) => {
   const formData = new FormData();
@@ -65,12 +58,10 @@ export const startAnalyzeJob = (file, textColumn = null) => {
 };
 
 /**
- * Step 2 of the async visualization pipeline.
+ * Step 2 of async analysis.
  *
- * Polls the backend for job progress. Once the job is complete, the response
- * includes the final `result` object. That single result contains the
- * pre-aggregated data for sentiment charts, aspect charts, theme cards, trend
- * charts, exports, and any optional review/product views.
+ * Ask the backend for job progress. When the job is complete, the response
+ * includes `result`, which contains the dashboard data.
  */
 export const getAnalyzeJobStatus = (jobId) => {
   return api.get(`/api/analyze/status/${jobId}`);
@@ -100,10 +91,10 @@ export const getExportUrl = (filename) => {
 };
 
 /**
- * Fetch aspect and theme data filtered to a single product.
+ * Fetch aspect and theme data for one selected product.
  *
- * The backend re-aggregates from the exported CSV on the fly so the initial
- * analysis response stays lean without per-product breakdowns.
+ * The backend reads the saved processed export and builds product-specific
+ * summaries only when the user needs them.
  */
 export const getProductAnalysis = (exportFile, productId) => {
   return api.get('/api/product-analysis', {
@@ -111,14 +102,15 @@ export const getProductAnalysis = (exportFile, productId) => {
   });
 };
 
+// Load review rows from the saved processed export. This is used by the Reviews
+// tab so it can work with all rows, not only the capped dashboard sample.
 export const getReviews = (exportFile, productId = 'all') => {
   return api.get('/api/reviews', {
     params: { file: exportFile, product_id: productId },
   });
 };
 
-// Saved-project helpers fulfill the backend persistence requirement in
-// Project.txt Functional Requirement 7.2.
+// Saved-project helpers let users load or delete previous analysis results.
 export const getProjects = () => api.get('/api/projects');
 
 export const getProject = (projectId) => api.get(`/api/projects/${projectId}`);

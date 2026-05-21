@@ -1,15 +1,8 @@
 """
 [Backend Step 11 of 13] Flask API Server - Orchestrator
 
-How this module fulfills Project.txt requirements:
-- System Architecture 7.1: acts as the Flask REST backend that connects the
-  React frontend to the analytics engine.
-- Functional Requirements 7.2: exposes health/model-info, upload/analyze,
-  async job polling, saved projects, exports, product drill-down, full review
-  loading, and single-review prediction endpoints.
-- Non-Functional Requirements 7.3: centralizes upload-size limits, structured
-  errors, logging, local storage cleanup, and graceful handling of optional
-  dataset fields.
+This file is the Flask API server that connects the React frontend to the
+backend analysis pipeline.
 
 Runtime flow:
 - Step 1: Accept CSV/Excel uploads and normalize columns  (Step 2  : _2_preprocessing)
@@ -22,13 +15,6 @@ Runtime flow:
 - Step 8: Aggregate product-level summaries                (Step 9  : _9_product_summary)
 - Step 9: Build review-table payload                       (Step 10 : _10_reviews_table)
 - Step 10: Persist exports and saved projects              (Step 13 : _13_storage)
-
-Research grounding:
-- The orchestrated pipeline mirrors the standard sentiment-analysis workflow
-  described by Tan et al. (2023) and Mao et al. (2024): preprocessing, feature
-  representation, classification, aggregation, and dashboard-ready reporting.
-- The ABSA portion is deliberately rule-based and explainable, consistent with
-  rule-based ABSA approaches surveyed by Wankhade et al. (2024).
 """
 
 # ─── Standard library ───────────────────────────────────────────────────────
@@ -72,9 +58,8 @@ from _13_storage import (
 )
 
 # ─── App initialization ──────────────────────────────────────────────────────
-# Flask is used because Project.txt scopes the system as a lightweight local
-# prototype: one REST server can expose upload, analysis, export, saved project,
-# prediction, and model-information endpoints without heavier infrastructure.
+# Flask exposes the app's backend features through simple REST endpoints:
+# upload, analysis, export, saved projects, prediction, and model information.
 # static_folder=None because the React build is served by its own dev server
 # (or a separate nginx/CDN layer in production).
 app = Flask(__name__, static_folder=None)
@@ -88,8 +73,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 EXPORT_FOLDER = os.path.join(os.path.dirname(__file__), 'exports')
 MODEL_COMPARISON_RESULTS_PATH = os.path.join(EXPORT_FOLDER, 'model_comparison_full_training_data.json')
 PROJECTS_FOLDER = os.path.join(os.path.dirname(__file__), 'projects')
-# Upload support intentionally includes CSV, XLSX, and XLS because Project.txt
-# Scope 3.1 requires common business spreadsheet formats without manual reshaping.
+# The frontend accepts common spreadsheet formats used for product review data.
 ALLOWED_EXTENSIONS = {'.csv', '.xlsx', '.xls'}   # Only tabular formats are accepted
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
@@ -178,7 +162,7 @@ def _error_response(message, status_code=400, code='request_error', details=None
 
 
 def _run_storage_cleanup():
-    """Apply Project.txt retention settings only to generated runtime files."""
+    """Clean generated upload/export/project files using retention settings."""
     cleanup_folder(UPLOAD_FOLDER, max_files=MAX_UPLOAD_FILES, max_age_hours=STORAGE_MAX_AGE_HOURS, prefixes=('upload_',))
     cleanup_folder(
         EXPORT_FOLDER,
@@ -257,9 +241,8 @@ def ensure_latest_classifier():
 # - analysis needs multiple progress stages for a visible progress bar
 # - once analysis is done, the final dashboard payload must still be retrievable
 #
-# A simple dict + Lock is sufficient for the single-process local/classroom
-# deployment delimited in Project.txt. A production deployment would replace
-# this with durable job storage or a queue such as Redis/Celery.
+# A simple dict + Lock is enough for this local Flask process. A larger
+# production system would use durable job storage or a queue such as Redis/Celery.
 ANALYSIS_JOBS = {}
 ANALYSIS_JOBS_LOCK = Lock()
 
@@ -329,7 +312,7 @@ def _emit_progress(progress_callback, progress, stage, message):
 
 def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     """
-    Run the full review analytics pipeline and return the dashboard response payload.
+    Run the full review analytics pipeline for one uploaded dataset.
 
     Execution stages:
       Step 1: Row sampling (cap at 50 000 for predictable runtime)
@@ -341,19 +324,13 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
       Step 7: Build product/review table summaries
       Step 8: CSV export + final JSON response assembly
 
-    This single function is called by both the synchronous `/api/analyze` route
-    and the background thread spawned by `/api/analyze/start`.
+    This function is used by both:
+    - `/api/analyze`, which returns the result in one request
+    - `/api/analyze/start`, which stores the result inside a background job
 
-    Most importantly, this function produces the exact response schema that the
-    frontend dashboard consumes. In the sync flow it is returned immediately as
-    JSON. In the async flow it is stored under `job.result` and later returned
-    by `/api/analyze/status/<job_id>` once the job completes.
-
-    Requirement notes:
-    - Trends are optional because Project.txt treats date columns as optional.
-    - Product summaries are optional because product identifiers are optional.
-    - The row cap supports the Performance non-functional requirement for a
-      classroom-scale prototype without requiring distributed processing.
+    It returns the exact JSON shape that the frontend dashboard expects.
+    Trends and product summaries are optional because uploaded files may not
+    include dates or product IDs.
     """
     if len(df) == 0:
         raise ValueError('Uploaded file is empty')
@@ -449,8 +426,8 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     product_summary = build_product_summary(processed_df, sentiment_col)
     product_trends = build_product_trends(processed_df, sentiment_col)
 
-    # Feed the reviews table payload. This is still bounded because the table view
-    # is heavier than the summary charts and is not presentation-ready yet.
+    # Feed the reviews table payload. The first dashboard payload is capped for
+    # speed; the Reviews tab can later ask the backend for all rows.
     reviews_data = build_reviews_table(processed_df, sentiment_col, limit=500)
 
     _emit_progress(progress_callback, 95, 'Export', 'Saving processed export files...')
@@ -504,7 +481,7 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
 
 def _run_analysis_job(job_id, file_path, filename, ext, text_col):
     """
-    Background worker that executes long-running analysis and updates job progress.
+    Process one uploaded file in the background and update job progress.
 
     Runs in a daemon thread so the HTTP layer returns immediately with a job_id.
     The frontend polls /api/analyze/status/<job_id> to track progress and retrieve
@@ -604,11 +581,7 @@ def health_check():
 
 @app.route('/api/model-info', methods=['GET'])
 def model_info():
-    """Return model evaluation metrics for the dashboard Model Info panel.
-
-    Exposes accuracy, precision, recall, F1, per-class breakdown, confusion
-    matrix, and model-comparison results required by Project.txt Section IX.
-    """
+    """Return model metrics for the dashboard Model Info panel."""
     # This endpoint backs the Model Info page and documents final-model choice.
     ensure_latest_classifier()
     if not classifier.is_trained:
@@ -740,7 +713,7 @@ def analyze():
 @app.route('/api/analyze/start', methods=['POST'])
 def analyze_start():
     """
-    Async analysis kickoff — saves the file and launches a background thread.
+    Start an async analysis job for a CSV/Excel upload.
 
     Returns a job_id immediately so the browser does not time out on large files.
     The frontend polls /api/analyze/status/<job_id> every few seconds and renders
@@ -1249,7 +1222,7 @@ def product_analysis():
 @app.route('/api/predict', methods=['POST'])
 def predict_single():
     """
-    Real-time single-review sentiment prediction.
+    Predict sentiment and aspects for one typed review.
 
     Accepts a JSON body with a `text` field and returns:
     - predicted_sentiment  : positive / neutral / negative
@@ -1257,8 +1230,8 @@ def predict_single():
     - probabilities        : full class probability breakdown
     - aspects              : per-aspect sentiment from ABSA
 
-    Used by the Single Predict panel to test the trained classifier outside a
-    full dataset upload, satisfying Project.txt Functional Requirement 7.2.
+    Used by the Single Predict panel to test the trained classifier without
+    uploading a full dataset.
     """
     # Single-text prediction reuses the same preprocessing and classifier stack
     # as dataset analysis so behavior stays consistent.

@@ -11,12 +11,6 @@
 //   - A ranked TF-IDF keyword list with inline score bars
 //   - Sentiment-bucketed keyword and phrase groups with a quick-filter
 //   - A product filter that triggers a backend fetch for product-scoped themes
-//
-// Project.txt link:
-//   - Objective 2.2.3: extract recurring themes, praise terms, and complaint
-//     terms so users can understand why reviews are positive or negative.
-//   - Expected Outputs XI: display keyword/theme summaries and word-cloud style
-//     evidence for management interpretation.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useCallback } from 'react';
 import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
@@ -24,11 +18,13 @@ import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_Dashboard
 import { getProductAnalysis } from '../../_1_api';
 
 function truncateId(text, max = 50) {
+  // Keep long product IDs from stretching the layout.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
 
 function keywordsToWordCloud(keywords = []) {
+  // Convert TF-IDF keyword tuples into the {text, value} shape used by clouds.
   return keywords.map(([text, score]) => ({
     text,
     value: Math.max(1, Math.round((Number(score) || 0) * 1000)),
@@ -43,10 +39,8 @@ function keywordsToWordCloud(keywords = []) {
  * contains ranked keywords, phrase groupings, complaint/praise buckets, and
  * word-frequency data.
  *
- * Research note:
- * The backend uses TF-IDF for distinctive keywords and CountVectorizer n-grams
- * for frequent phrases, matching the classical text-mining pipeline documented
- * in Project.txt.
+ * In simple terms, this component shows the repeated words and phrases behind
+ * positive and negative reviews.
  */
 function ThemeSummary({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');

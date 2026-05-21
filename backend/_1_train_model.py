@@ -1,26 +1,13 @@
 """
 [Backend Step 1 of 13] Model Training Script
 
-How this module fulfills Project.txt requirements:
-- Objective 2.2.1 and Methodology 6.2: loads review data, preprocesses text,
-  derives sentiment labels, and saves the processed training dataset.
-- Objective 2.2.2 and Evaluation Plan IX: trains the TF-IDF + Logistic
-  Regression sentiment classifier and records accuracy, precision, recall, F1,
-  and confusion-matrix artifacts for the Model Info page.
+This file prepares and trains the sentiment model used by the app.
 
-Code process:
-- Step 1: Load the raw review dataset columns needed for training.
-- Step 2: Preprocess review text and derive training sentiment labels.
-- Step 3: Train the TF-IDF + Logistic Regression production classifier.
-- Step 4: Save the model, vectorizer, metrics, and processed training export.
-
-Research grounding:
-- Using review stars as distant supervision follows the rating-derived labeling
-  setup discussed by Li et al. (2024) and reflected in Chen (2024)'s sentiment
-  experiments.
-- Reporting macro metrics in addition to accuracy follows standard evaluation
-  practice for imbalanced sentiment data, as emphasized by Tan et al. (2023)
-  and Mao et al. (2024).
+Presentation flow:
+- Step 1: Read the review dataset.
+- Step 2: Clean the review text and create sentiment labels from ratings/text.
+- Step 3: Train the TF-IDF + Logistic Regression classifier.
+- Step 4: Save the trained model, vectorizer, metrics, and processed CSV.
 """
 
 import os
@@ -50,19 +37,17 @@ HYBRID_LABEL_MAX_ROWS = float('inf')
 # ─── 1_LoadData ──────────────────────────────────────────────────────────────────
 def step_1_load_data(data_path, sample_size=None):
     """
-    Read the raw Reviews.csv file and optionally limit it at load time.
+    Step 1: Read the raw Reviews.csv file.
+
+    Only the columns needed for training are loaded. sample_size can limit the
+    row count so training finishes faster during demos or testing.
 
     Parameters:
     - data_path:    path to Reviews.csv
     - sample_size:  max rows to read (None = use all rows)
 
     Returns:
-    - Raw pandas DataFrame (possibly row-limited)
-
-    Project.txt link:
-    Reviews.csv is usable for training because it already includes star ratings,
-    allowing sentiment labels to be derived without manual annotation. This is
-    the same rating-as-distant-supervision idea cited in Li et al. (2024).
+    - Raw pandas DataFrame, possibly row-limited.
     """
     print("\n" + "-"*60)
     print("STEP 1 – Load Data")
@@ -88,8 +73,10 @@ def step_1_load_data(data_path, sample_size=None):
 # ─── 2_Preprocess ────────────────────────────────────────────────────────────────
 def step_2_preprocess(df):
     """
-    Run the full text preprocessing pipeline on the raw dataframe:
-    clean text, tokenize, lemmatize, and map ratings to sentiment labels.
+    Step 2: Clean the raw reviews and create training labels.
+
+    The preprocessing function removes noisy text, keeps useful metadata, and
+    maps ratings/text into positive, neutral, or negative labels.
 
     Returns:
     - Processed DataFrame with columns: original_text, cleaned_text,
@@ -121,9 +108,10 @@ def step_2_preprocess(df):
 # ─── 3_SaveProcessed ─────────────────────────────────────────────────────────────
 def step_3_save_processed(processed_df):
     """
-    Save the processed training dataset to backend/exports/ so that it can
-    be reviewed before training.  The file contains the cleaned text, the
-    derived sentiment label, and all available metadata columns.
+    Step 3: Save the cleaned training data to backend/exports/.
+
+    This makes the exact text and labels visible before the model learns from
+    them. It is useful for checking the training data during a presentation.
 
     Returns:
     - Absolute path to the saved CSV file.
@@ -148,11 +136,10 @@ def step_3_save_processed(processed_df):
 # ─── 4_ClassBalance ──────────────────────────────────────────────────────────────
 def step_4_load_processed(csv_path):
     """
-    Reload the processed training dataset from the saved CSV file.
+    Step 4: Reload the saved processed CSV.
 
-    This ensures the model trains on the exact persisted file rather than
-    an in-memory intermediate, making the pipeline fully auditable — the CSV
-    you inspect is the same data the model learned from.
+    The model trains from the same CSV that was saved in Step 3. This keeps the
+    process easy to explain: the visible processed file is the training source.
 
     Returns:
     - Loaded pandas DataFrame from the processed CSV.
@@ -181,13 +168,10 @@ def step_4_load_processed(csv_path):
 # ─── 5_ClassBalance ──────────────────────────────────────────────────────────────
 def step_5_class_balance(processed_df):
     """
-    Print the sentiment class distribution so class imbalance is visible
-    before training begins.
+    Step 5: Show how many reviews belong to each sentiment class.
 
-    Project.txt link:
-    The dataset is imbalanced, usually with more positive reviews than minority
-    classes. Printing this makes it easier to explain why macro metrics can be
-    weaker than overall accuracy.
+    This helps explain whether the dataset has many more positive, neutral, or
+    negative reviews before the model is trained.
     """
     print("\n" + "-"*60)
     print("STEP 5 – Class Balance")
@@ -202,8 +186,10 @@ def step_5_class_balance(processed_df):
 # ─── 6_TrainModel ────────────────────────────────────────────────────────────────
 def step_6_train_model(processed_df):
     """
-    Fit the TF-IDF vectorizer and Logistic Regression classifier on the
-    processed text and sentiment labels.
+    Step 6: Train the model on processed review text and sentiment labels.
+
+    TF-IDF turns words/phrases into numbers. Logistic Regression learns from
+    those numbers to predict positive, neutral, or negative sentiment.
 
     Returns:
     - (classifier, metrics) tuple
@@ -231,8 +217,10 @@ def step_6_train_model(processed_df):
 # ─── 7_SaveModel ─────────────────────────────────────────────────────────────────
 def step_7_save_model(classifier):
     """
-    Persist model, vectorizer, and evaluation metrics under backend/models/
-    so the Flask API can load them at startup.
+    Step 7: Save the trained model files under backend/models/.
+
+    The Flask API loads these files later, so users can analyze reviews without
+    retraining the model every time.
     """
     print("\n" + "-"*60)
     print("STEP 7 – Save Model")
@@ -245,7 +233,7 @@ def step_7_save_model(classifier):
 # ─── 8_Evaluate ──────────────────────────────────────────────────────────────────
 def step_8_evaluate(metrics):
     """
-    Print a human-readable evaluation summary of the trained model.
+    Step 8: Print the final model scores for presentation and checking.
     """
     print("\n" + "-"*60)
     print("STEP 8 – Evaluation Summary")
@@ -259,7 +247,7 @@ def step_8_evaluate(metrics):
 # ─── Orchestrator ─────────────────────────────────────────────────────────────────
 def train_model(data_path, sample_size=100000):
     """
-    End-to-end training orchestrator.  Calls each numbered step in order.
+    Run the full training pipeline by calling each numbered step in order.
 
     Parameters:
     - data_path:    path to Reviews.csv
@@ -281,8 +269,8 @@ def train_model(data_path, sample_size=100000):
     # 3_SaveProcessed – Write the processed dataset for manual inspection.
     csv_path = step_3_save_processed(processed_df)
 
-    # 4_LoadProcessed – Reload from the saved CSV so training uses the exact
-    # persisted file (auditable: what you inspect = what the model trains on).
+    # 4_LoadProcessed - Reload from the saved CSV so the model trains from the
+    # exact file we can inspect.
     training_df = step_4_load_processed(csv_path)
 
     # 5_ClassBalance – Show class distribution before training.

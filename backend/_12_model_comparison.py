@@ -1,26 +1,13 @@
 """
 [Backend Step 12 of 13] Sentiment Model Comparison
 
-How this module fulfills Project.txt requirements:
-- Specific Objective 2.2.5 and Evaluation Plan IX: compares Logistic Regression,
-  Linear SVM, Multinomial Naive Bayes, Complement Naive Bayes, and SGD on the
-  same TF-IDF train/test split.
-- Model Info requirement: exports JSON-safe comparison metadata and scores so
-  the frontend can show why the final production model was selected.
+This file compares several sentiment models using the same train/test split.
 
-Code process:
-- Step 1: Preprocess the same source dataset used for production training.
-- Step 2: Train each candidate classifier on the same TF-IDF train/test split.
+Presentation flow:
+- Step 1: Load the same processed data used for training.
+- Step 2: Train each candidate model with the same TF-IDF features.
 - Step 3: Compare accuracy, precision, recall, macro F1, and runtime.
-- Step 4: Save JSON-safe results for the Model Info page.
-
-Research grounding:
-- The candidate set represents common classical sentiment-analysis baselines
-  discussed in survey literature such as Tan et al. (2023), Mao et al. (2024),
-  and Daza et al. (2024).
-- Ranking primarily by macro F1 is intentional because review datasets are often
-  class-imbalanced; macro metrics give negative, neutral, and positive classes
-  equal weight instead of letting the majority class dominate accuracy.
+- Step 4: Save comparison results for the Model Info page.
 """
 
 import argparse
@@ -123,7 +110,7 @@ def evaluate_model_candidates(
     min_df=2,
 ):
     """
-    Fit and score every candidate model on one shared TF-IDF train/test split.
+    Train and score every candidate model on the same data split.
 
     Returns a list sorted by macro F1, then accuracy. Macro F1 is ranked first
     because this review dataset can be class-imbalanced.

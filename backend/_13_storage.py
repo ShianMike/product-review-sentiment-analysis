@@ -1,25 +1,13 @@
 """
 [Backend Step 13 of 13] Local Storage and Cleanup
 
-How this module fulfills Project.txt requirements:
-- Functional Requirement 7.2: persists completed analyses as backend saved
-  projects so users can load or delete prior results from the upload page.
-- Non-Functional Requirement 7.3: isolates storage helpers, validates project
-  IDs, and supports generated-file cleanup for uploads, exports, and projects.
-- Tools and Technologies VIII: implements the local filesystem storage approach
-  described for the no-database prototype.
+This file handles saved analysis projects and generated-file cleanup.
 
-Code process:
-- Step 1: Validate generated project IDs and export filenames.
-- Step 2: Save completed analysis payloads as local project JSON files.
+Presentation flow:
+- Step 1: Validate project IDs before using them as file names.
+- Step 2: Save completed analysis results as local JSON project files.
 - Step 3: List, load, and delete saved projects for the upload page.
-- Step 4: Clean old generated uploads, exports, and projects safely.
-
-Design note:
-- This is intentionally file-based rather than database-backed because
-  Project.txt delimits the prototype as a local/classroom system. The validation
-  and prefix/suffix cleanup filters protect generated files without deleting
-  model comparison artifacts or other static project files.
+- Step 4: Remove old generated uploads, exports, and project files safely.
 """
 
 import json
@@ -34,6 +22,7 @@ PROJECT_ID_RE = re.compile(r'^[a-zA-Z0-9_.-]+$')
 
 
 def read_int_env(name, default, minimum=0):
+    """Read an integer setting from the environment with a safe fallback."""
     raw = os.getenv(name, str(default))
     try:
         value = int(raw)
@@ -43,11 +32,13 @@ def read_int_env(name, default, minimum=0):
 
 
 def slugify_project_title(value, fallback='analysis'):
+    """Turn a project title or filename into a short safe filename segment."""
     slug = re.sub(r'[^a-zA-Z0-9]+', '-', str(value or '').strip().lower()).strip('-')
     return slug[:48] or fallback
 
 
 def validate_project_id(project_id):
+    """Check that a project ID is safe to use as a local JSON filename."""
     project_id = str(project_id or '').strip()
     if not project_id or not PROJECT_ID_RE.match(project_id):
         raise ValueError('Invalid project id.')
@@ -55,11 +46,13 @@ def validate_project_id(project_id):
 
 
 def project_file_path(projects_folder, project_id):
+    """Build the full local JSON path for one saved project."""
     safe_id = validate_project_id(project_id)
     return os.path.join(projects_folder, f'{safe_id}.json')
 
 
 def project_metadata_from_payload(payload):
+    """Return the small project summary used by the saved-projects list."""
     return {
         'id': payload.get('id'),
         'title': payload.get('title'),
@@ -74,6 +67,7 @@ def project_metadata_from_payload(payload):
 
 
 def save_analysis_project(projects_folder, result, title=None):
+    """Save one completed analysis result as a local project JSON file."""
     os.makedirs(projects_folder, exist_ok=True)
     now_dt = datetime.now(timezone.utc)
     now = now_dt.isoformat().replace('+00:00', 'Z')
@@ -102,6 +96,7 @@ def save_analysis_project(projects_folder, result, title=None):
 
 
 def list_analysis_projects(projects_folder):
+    """List saved project summaries, newest first."""
     if not os.path.isdir(projects_folder):
         return []
     projects = []
@@ -119,6 +114,7 @@ def list_analysis_projects(projects_folder):
 
 
 def load_analysis_project(projects_folder, project_id):
+    """Load one saved project JSON payload by project ID."""
     path = project_file_path(projects_folder, project_id)
     if not os.path.isfile(path):
         return None
@@ -127,6 +123,7 @@ def load_analysis_project(projects_folder, project_id):
 
 
 def delete_analysis_project(projects_folder, project_id):
+    """Delete one saved project JSON file by project ID."""
     path = project_file_path(projects_folder, project_id)
     if not os.path.isfile(path):
         return False
@@ -135,6 +132,7 @@ def delete_analysis_project(projects_folder, project_id):
 
 
 def cleanup_folder(folder, max_files=100, max_age_hours=168, suffixes=None, prefixes=None):
+    """Delete old or excess generated files while respecting name filters."""
     if not os.path.isdir(folder):
         return {'deleted': 0, 'remaining': 0}
     now = time.time()

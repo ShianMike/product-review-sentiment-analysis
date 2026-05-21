@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Send, Loader2, MessageSquare } from 'lucide-react';
 import { predictSingle } from '../_1_api';
 
-// Fulfills Project.txt Functional Requirement 7.2 by letting users test the
-// trained classifier and ABSA logic on one review without uploading a dataset.
+// Single-review test page:
+// users can type one review and see the model's sentiment and detected aspects.
 function SinglePredict() {
   const [text, setText] = useState('');
   const [result, setResult] = useState(null);

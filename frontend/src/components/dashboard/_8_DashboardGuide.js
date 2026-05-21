@@ -23,8 +23,7 @@ export function GuideButton({
   // All dashboard help/info buttons use this one trigger component so the
   // button behavior stays consistent across overview, themes, trends, aspects,
   // and model-info screens.
-  // These guide buttons support Project.txt's target users, including sellers
-  // and product teams, by explaining analytics in plain language.
+  // These guide buttons explain dashboard numbers in plain language for users.
   //
   // aria-haspopup="dialog" tells screen readers that clicking this button
   // will open a dialog rather than navigating to a new page.

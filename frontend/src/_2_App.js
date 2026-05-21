@@ -9,20 +9,16 @@ import './_2_App.css';
 /**
  * App is the top-level coordinator for the frontend.
  *
- * Fetch/visualization handoff:
+ * Frontend flow:
  * - FileUpload performs the async backend requests
  * - once analysis completes, FileUpload calls handleAnalysisComplete(data)
  * - App stores that backend result in analysisData
  * - App switches the visible tab to "dashboard"
  * - Dashboard and its child chart components receive the same analysisData
  *
- * This makes the data path easy to explain in a presentation:
- * upload -> backend analysis job -> completed result payload -> React state ->
+ * Simple presentation line:
+ * upload -> backend analysis job -> completed result -> React state ->
  * dashboard visualizations.
- *
- * Project.txt link:
- * This component coordinates the main user-facing sections required by the
- * project: Upload, Dashboard, Test Prediction, and Model Info.
  */
 function App() {
   // App owns the shared state that connects the upload step to the dashboard.
@@ -47,7 +43,7 @@ function App() {
 
   return (
     <div className="app">
-      {/* These tabs match the main workflow described in Project.txt. */}
+      {/* Header controls the main pages: Upload, Dashboard, Predict, and Model Info. */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
