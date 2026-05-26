@@ -151,6 +151,13 @@ class SentimentClassifier:
         self.evaluation_metrics = {}
         self._loaded_model_mtime = None
         self._loaded_vectorizer_mtime = None
+
+    @staticmethod
+    def _normalize_loaded_model(model):
+        """Backfill attributes removed from newer sklearn pickles when older runtimes load them."""
+        if isinstance(model, LogisticRegression) and not hasattr(model, 'multi_class'):
+            model.multi_class = 'auto'
+        return model
     
     def train(self, texts, labels, test_size=0.2, random_state=42):
         """
@@ -318,7 +325,7 @@ class SentimentClassifier:
         if not os.path.exists(vectorizer_path):
             raise FileNotFoundError(f"Vectorizer file not found: {vectorizer_path}")
         
-        self.model = joblib.load(model_path)
+        self.model = self._normalize_loaded_model(joblib.load(model_path))
         self.vectorizer = joblib.load(vectorizer_path)
         self.is_trained = True
         # Store artifact timestamps immediately after load for hot-reload checks.

@@ -19,7 +19,8 @@ numpy==1.26.4
 
 # scikit-learn provides the TF-IDF vectorizer, Logistic Regression model,
 # train/test split utilities, and evaluation metrics for sentiment analysis.
-scikit-learn==1.6.1
+# Match the saved model artifact format committed under backend/models/.
+scikit-learn==1.8.0
 
 # nltk is used for text preprocessing such as stopword removal, tokenization,
 # and lemmatization before training and prediction.
