@@ -1,13 +1,11 @@
 """
 [Backend Step 4 of 13] Aspect-Based Sentiment Analysis (ABSA)
 
-This file detects product topics mentioned inside each review.
-
-Presentation flow:
-- Step 1: Look for aspect keywords such as quality, price, delivery, and service.
-- Step 2: Score the matching sentence or review using TextBlob polarity.
-- Step 3: Convert the score into positive, neutral, or negative.
-- Step 4: Count aspect mentions for dashboard charts and review details.
+Rule-based aspect (topic) detection and sentiment scoring:
+1. Aspect Keywords: Scans reviews for specific keywords representing categories (e.g. 'quality', 'price').
+2. Sentence-Level sentiment: Isolates and scores only the specific sentences discussing an aspect.
+3. Sentiment Labeling: Translates TextBlob polarity score (-1 to +1) into positive, neutral, or negative.
+4. Aggregation: Compiles mention frequencies, polarity averages, and ratios for frontend charts.
 """
 
 import re
@@ -15,10 +13,9 @@ from collections import defaultdict
 from textblob import TextBlob
 
 
-# ─── Aspect keyword lexicons ─────────────────────────────────────────────────────
-# These keyword lists define what counts as each product aspect. The approach is
-# easy to explain in a demo: if review text contains these words or phrases, that
-# aspect is marked as mentioned.
+# ─── Aspect keyword lists ────────────────────────────────────────────────────────
+# Defines the vocabulary mapping that triggers aspect detection. If a review contains
+# one of these words or short phrases, that aspect is flagged as discussed.
 ASPECT_KEYWORDS = {
     'quality': [
         'quality', 'durable', 'durability', 'sturdy', 'flimsy', 'cheap',
@@ -74,24 +71,25 @@ ASPECT_KEYWORDS = {
 # ─── Pattern compilation ─────────────────────────────────────────────────────────
 
 def _compile_aspect_patterns(aspect_keywords):
-    """
-    Pre-compile boundary-aware regex patterns for each aspect keyword.
+    r"""
+    Compiles list of keywords for each aspect into boundary-aware regex patterns.
 
-    Boundary checks avoid false positives from substring matches, such as
-    matching "ship" inside unrelated words.
+    Using word boundaries (e.g. (?<!\w)...(?!\w)) prevents partial substring matches,
+    ensuring a keyword like "ship" does not falsely match on words like "shipping" or "relationship".
     """
     compiled = {}
     for aspect, keywords in aspect_keywords.items():
         compiled[aspect] = [
-            # re.escape keeps literal phrase matching safe for punctuation/symbols.
+            # re.escape makes sure punctuation in the keyword is treated as a
+            # plain character, not as a regex symbol.
             re.compile(rf'(?<!\w){re.escape(keyword)}(?!\w)', re.IGNORECASE)
             for keyword in keywords
         ]
     return compiled
 
 
-# Compile all patterns once at import time; reusing pre-compiled patterns
-# avoids redundant regex compilation on every function call.
+# Pre-compile the regex objects once at module import. Reusing compiled patterns
+# prevents redundant recompilation overhead for every review analyzed.
 ASPECT_PATTERNS = _compile_aspect_patterns(ASPECT_KEYWORDS)
 
 
@@ -100,69 +98,64 @@ ASPECT_PATTERNS = _compile_aspect_patterns(ASPECT_KEYWORDS)
 
 def detect_aspects(text):
     """
-    Find which configured aspects are mentioned in one review.
+    Scans a single review text and returns all aspects mentioned in it.
 
-    Returns:
-    - List of aspect names detected at least once in the text.
+    Checks keyword list patterns sequentially. Once an aspect is matched, we stop checking
+    its remaining keywords to avoid duplicating the aspect flag for a single review.
     """
     if not isinstance(text, str):
         return []
-    
+
     detected = []
-    
-    # Boundary-aware matches reduce accidental substring hits.
+
+    # Whole-word matching reduces wrong matches like "ship" inside "shipping".
     for aspect, patterns in ASPECT_PATTERNS.items():
         for pattern in patterns:
             if pattern.search(text):
                 detected.append(aspect)
-                # Stop at first hit for this aspect so it appears only once.
+                # One match is enough. Stop checking the rest of the keywords
+                # for this aspect so it only shows up once in the result.
                 break
-    
+
     return detected
 
 
 def get_aspect_sentiment(text, aspect):
     """
-    Estimate sentiment for one detected aspect.
+    Determines sentiment polarity and label for a specific aspect in a review.
 
-    Strategy:
-    - Collect only sentences mentioning the aspect keywords.
-    - Score each matched sentence with TextBlob polarity/subjectivity.
-    - Fall back to full-text sentiment if no aspect-specific sentence is found.
-
-    Returns polarity score (-1 to 1), subjectivity (0 to 1), and mapped label.
+    Instead of scoring the entire review, we only score sentences containing aspect keywords.
+    This provides target-level sentiment (e.g. in "taste is good but service was poor", 'taste'
+    scores positive while 'service' scores negative). Falls back to whole-text if no sentence matches.
     """
     if not isinstance(text, str):
         return {'polarity': 0, 'subjectivity': 0, 'label': 'neutral'}
-    
-    # TextBlob scores sentiment polarity for the matched aspect context instead
-    # of only scoring the review as one whole block.
+
+    # Score only the specific sentences discussing the aspect.
     patterns = ASPECT_PATTERNS.get(aspect, [])
-    
-    # Sentence-level filtering isolates aspect context in mixed-sentiment reviews.
+
+    # Extract sentences mentioning the aspect.
     blob = TextBlob(text)
     aspect_sentences = []
-    
+
     for sentence in blob.sentences:  # type: ignore[attr-defined]
         sentence_text = str(sentence)
         for pattern in patterns:
             if pattern.search(sentence_text):
                 aspect_sentences.append(sentence)
                 break
-    
+
     if not aspect_sentences:
-        # Rule-based keyword methods can miss implicit references or synonyms,
-        # so fallback sentiment on the full review keeps behavior stable when
-        # no aspect-specific sentence is isolated.
+        # Fallback to whole review if no clear sentence boundary matches.
         polarity = blob.sentiment.polarity  # type: ignore[attr-defined]
         subjectivity = blob.sentiment.subjectivity  # type: ignore[attr-defined]
     else:
-        # Average over all matching sentences to smooth single-sentence outliers.
+        # Average the scores if multiple sentences match.
         polarities = [s.sentiment.polarity for s in aspect_sentences]
         subjectivities = [s.sentiment.subjectivity for s in aspect_sentences]
         polarity = sum(polarities) / len(polarities)
         subjectivity = sum(subjectivities) / len(subjectivities)
-    
+
     # Use a small neutral band around zero to avoid noisy flips.
     if polarity > 0.1:
         label = 'positive'
@@ -170,7 +163,7 @@ def get_aspect_sentiment(text, aspect):
         label = 'negative'
     else:
         label = 'neutral'
-    
+
     return {
         'polarity': round(polarity, 4),
         'subjectivity': round(subjectivity, 4),
@@ -187,10 +180,10 @@ def analyze_aspects(text):
     """
     detected = detect_aspects(text)
     results = {}
-    
+
     for aspect in detected:
         results[aspect] = get_aspect_sentiment(text, aspect)
-    
+
     return results
 
 
@@ -198,36 +191,36 @@ def analyze_aspects(text):
 
 def analyze_aspects_batch(texts):
     """
-    Run aspect analysis for all uploaded reviews.
-    
-    Returns:
-    - aspect_results: list of dicts, one per review
-    - aspect_summary: aggregated aspect sentiment summary sorted by mentions
+    Processes a list of review texts, running aspect detection and sentiment scoring on each.
+
+    Aggregates overall statistics: total mentions, positive/neutral/negative counts,
+    sentiment percentages, and average polarity scores. Sorted by popularity descending.
     """
     aspect_results = []
-    # defaultdict keeps aggregation code simple by auto-initializing counters.
+    # Accumulates aspect mention counts, positive/neutral/negative flags, and sentiment scores.
     aspect_summary = defaultdict(lambda: {
         'count': 0,
         'positive': 0,
         'neutral': 0,
         'negative': 0,
         'total_polarity': 0,
-        # Reserved for optional example snippets if needed later in the UI.
+        # Empty list kept for example sentences in case we add them later.
         'mentions': []
     })
-    
+
     for text in texts:
         review_aspects = analyze_aspects(text)
         aspect_results.append(review_aspects)
-        
-        # Accumulate counts and polarity totals per detected aspect.
+
+        # For every aspect found in this review, add 1 to its total, add 1
+        # to the matching sentiment, and add the polarity score.
         for aspect, sentiment in review_aspects.items():
             summary = aspect_summary[aspect]
             summary['count'] += 1
             summary[sentiment['label']] += 1
             summary['total_polarity'] += sentiment['polarity']
-    
-    # Compute averages and format summary
+
+    # Formulates counts into final percentages and computes the average polarity.
     formatted_summary = {}
     for aspect, data in aspect_summary.items():
         count = data['count']
@@ -241,8 +234,8 @@ def analyze_aspects_batch(texts):
             'negative_pct': round(data['negative'] / count * 100, 1) if count > 0 else 0,
             'avg_polarity': round(data['total_polarity'] / count, 4) if count > 0 else 0
         }
-    
-    # Most-mentioned aspects appear first in dashboard summaries.
+
+    # Sorts the final aspect list so the most-mentioned aspects are returned first.
     formatted_summary = dict(
         sorted(formatted_summary.items(), key=lambda x: x[1]['total_mentions'], reverse=True)
     )
@@ -260,7 +253,7 @@ if __name__ == '__main__':
         "Customer service was rude. The product looks beautiful though.",
         "Easy to use and setup. Instructions were clear and straightforward."
     ]
-    
+
     for review in sample_reviews:
         print(f"\nReview: {review}")
         aspects = analyze_aspects(review)

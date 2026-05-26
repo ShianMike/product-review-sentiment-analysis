@@ -1,21 +1,17 @@
 // _10_AspectAnalysis.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Renders the "Aspects" tab of the dashboard.
+// Aspects tab of the dashboard.
 //
-// Aspect-Based Sentiment Analysis (ABSA) groups review text by product topic
-// (price, quality, delivery, etc.) and scores each topic independently.
-// The backend implementation is rule-based: curated aspect keywords are matched
-// with boundary-aware patterns, then TextBlob scores the matched context.
+// This file only displays the aspect-based sentiment analysis results.
+// It does not run aspect detection or sentiment scoring in the browser.
 //
-// Data flow:
-//   1. Default data comes from the global analysis payload in props.
-//   2. When the user picks a specific product, handleProductChange fetches
-//      product-scoped aspect/theme/trend data from the backend.
-//   3. Derived state (barData, radarData, filteredSelectedAspectTrend) is
-//      memoized and recomputed only when its direct inputs change.
-//   4. Clicking an aspect row in the list opens a detail panel showing that
-//      aspect's polarity, phrase themes, and time-series trend.
-// ─────────────────────────────────────────────────────────────────────────────
+// What this tab shows:
+// - Highlight cards for best, worst, and most mentioned aspects
+// - Aspect-level report export buttons (CSV / JSON)
+// - Product filter to drill down aspects per product
+// - All Aspects table (clicking a row opens detailed analysis)
+// - Selected aspect detail panel (polarity, counts, complaint/praise phrases)
+// - Monthly aspect sentiment trends over time
+// - Charts: Sentiment by Aspect (stacked bar) and Aspect Polarity Radar
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -34,7 +30,7 @@ const COLORS = {
 };
 
 function truncateId(text, max = 50) {
-  // Keep long product IDs readable inside filters and headings.
+  // Cut long product IDs short so they fit inside the dropdown filter.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
@@ -48,31 +44,23 @@ const tooltipStyle = {
 };
 
 /**
- * AspectAnalysis visualizes the aspect-focused slices of the fetched result.
+ * Aspects section of the dashboard.
  *
- * It receives:
- * - aspect_summary from the backend ABSA aggregation
- * - aspect_theme_summary for praise/complaint drill-down
- * - aspect_trends for month-level aspect trend lines
- *
- * This component performs frontend-only reshaping so the chart library can
- * render the data, but it does not recompute aspect analytics itself.
- *
- * Since the backend already calculated aspect labels and summaries, this UI
- * only reshapes that data for charts, detail panels, and export buttons.
+ * This component does not run aspect detection or score sentiment.
+ * It reads the aspect_summary, aspect_theme_summary, and aspect_trends
+ * prepared by the backend and reshapes them for charts and tables.
  */
 function AspectAnalysis({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');
   const [productData, setProductData] = useState(null);
   const [productLoading, setProductLoading] = useState(false);
 
-  // Product list comes from the product summary computed during the main analysis.
+  // Product list extracted from the backend's product summary.
   const allProducts = data.product_summary?.top_products || [];
   const hasProducts = allProducts.length > 1 && Boolean(data.export_file);
 
-  // When a product is selected, fetch its aspect/theme data from the backend.
-  // selectedAspect is also reset so the detail panel doesn't show stale data
-  // from the previous product or the global dataset.
+  // Fetch product-specific aspect details from backend. We reset the selected aspect
+  // state (selectedAspect) so the detail panel doesn't display stale data from the previous product.
   const handleProductChange = useCallback(async (productId) => {
     setSelectedProduct(productId);
     setSelectedAspect(null);
@@ -93,9 +81,8 @@ function AspectAnalysis({ data }) {
     }
   }, [data.export_file]);
 
-  // Use product-filtered data when a product is selected, otherwise use global data.
-  // The fallback to `data.*` means the component always has something to render
-  // even while productData is still loading.
+  // If a product filter is active, display its aspect data. Otherwise, fall back to the global
+  // data from the main results so that the dashboard doesn't blank out during transitions.
   const aspect_summary = (selectedProduct !== 'all' && productData?.aspect_summary) || data.aspect_summary;
   const aspect_theme_summary = (selectedProduct !== 'all' && productData?.aspect_theme_summary) || data.aspect_theme_summary;
   const aspect_trends = (selectedProduct !== 'all' && productData?.aspect_trends) || data.aspect_trends;
@@ -123,7 +110,8 @@ function AspectAnalysis({ data }) {
     : null;
   const mostMentioned = hasAspects ? aspectEntries[0] : null;
 
-  // Stacked bar chart data: one row per aspect with positive/neutral/negative counts.
+  // Formats aspect summary statistics into flat objects containing positive, neutral,
+  // and negative counts. Recharts BarChart component consumes this structure for the stacked layout.
   const barData = aspectEntries.map(([aspect, stats]) => ({
     aspect: toTitleCase(aspect),
     Positive: stats.positive_count,
@@ -133,9 +121,9 @@ function AspectAnalysis({ data }) {
     avg_polarity: stats.avg_polarity,
   }));
 
-  // Radar chart expects one numeric score per axis. We remap polarity from
-  // [-1, 1] into [0, 100] so the chart reads as negative -> neutral -> positive.
-  // Formula: (polarity + 1) * 50 maps -1 -> 0, 0 -> 50, +1 -> 100.
+  // Maps the average aspect polarity from its raw range of [-1, +1] to a visual scale of [0, 100].
+  // On this radar scale, 50 indicates neutral sentiment, scores above 50 indicate positive sentiment,
+  // and scores below 50 indicate negative sentiment.
   const radarData = aspectEntries.map(([aspect, stats]) => ({
     aspect: toTitleCase(aspect),
     polarity: Math.round((stats.avg_polarity + 1) * 50),
@@ -148,15 +136,12 @@ function AspectAnalysis({ data }) {
     if (!selectedAspect) {
       return [];
     }
-    // Backend already grouped trend points by aspect name. We only pick the
-    // currently selected aspect's series for the line chart.
+    // Retrieve monthly trend data points for the selected aspect.
     const trendPoints = aspect_trends?.aspects?.[selectedAspect];
     return Array.isArray(trendPoints) ? trendPoints : [];
   }, [selectedAspect, aspect_trends]);
 
-  // Normalize month strings to YYYY-MM format (some backend responses include
-  // a day component like 2024-03-01; slicing to 7 chars keeps them uniform)
-  // and sort chronologically so Recharts renders a left-to-right time axis.
+  // Normalize month labels to 'YYYY-MM' and sort chronologically.
   const normalizedSelectedAspectTrend = useMemo(
     () => selectedAspectTrend
       .map((point) => {
@@ -208,8 +193,8 @@ function AspectAnalysis({ data }) {
   const handleAspectTrendStartMonthChange = (event) => {
     const nextStart = event.target.value;
     setAspectTrendStartMonth(nextStart);
-    // Guard: if the user pushes the start month past the current end month,
-    // snap the end month forward to match so the range stays valid.
+    // Validates range boundaries. If the user picks a start month that is later than the
+    // current end month, we push the end month forward to keep the chronological range valid.
     if (selectedAspectTrendEndMonth && nextStart > selectedAspectTrendEndMonth) {
       setAspectTrendEndMonth(nextStart);
     }
@@ -218,8 +203,8 @@ function AspectAnalysis({ data }) {
   const handleAspectTrendEndMonthChange = (event) => {
     const nextEnd = event.target.value;
     setAspectTrendEndMonth(nextEnd);
-    // Guard: if the user pulls the end month before the current start month,
-    // snap the start month back to match.
+    // Validates range boundaries. If the user picks an end month that is earlier than the
+    // current start month, we pull the start month back to keep the chronological range valid.
     if (selectedAspectTrendStartMonth && nextEnd < selectedAspectTrendStartMonth) {
       setAspectTrendStartMonth(nextEnd);
     }
@@ -243,9 +228,7 @@ function AspectAnalysis({ data }) {
     [selectedAspect, activeDetail, selectedAspectThemes, selectedAspectTrend],
   );
 
-  // Build the export payload once and reuse it for both CSV and JSON.
-  // This keeps the export handlers simple and ensures both formats contain
-  // the same data snapshot.
+  // Construct the export payload with summary, themes, and trends.
   const createAspectExportPayload = () => ({
     filename: data.filename,
     total_reviews: data.total_reviews,
@@ -282,10 +265,7 @@ function AspectAnalysis({ data }) {
     );
   }
 
-  // Aspect-section info buttons read from this map.
-  // Some guides are always available (best/worst/radar/export), while others
-  // only exist when an aspect is selected so the modal can explain that
-  // specific aspect's live counts, phrases, and trend points.
+  // Guide popups that display documentation tailored to the current results.
   const guideSections = {
     best: {
       title: 'Best Rated Aspect',
@@ -528,6 +508,7 @@ function AspectAnalysis({ data }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Best, worst, and most mentioned aspects highlight cards */}
       <div className="grid grid-3">
         <HighlightCard
           label="Best Rated"
@@ -568,6 +549,7 @@ function AspectAnalysis({ data }) {
         />
       </div>
 
+      {/* Export CSV and JSON buttons */}
       <div className="card">
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -606,6 +588,7 @@ function AspectAnalysis({ data }) {
       {exportError && <div className="alert alert-error">{exportError}</div>}
 
       {hasProducts && (
+        /* Product filter dropdown */
         <div className="card">
           <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div className="section-label" style={{ marginBottom: 0 }}>Product Filter</div>
@@ -636,6 +619,7 @@ function AspectAnalysis({ data }) {
         </div>
       )}
 
+      {/* Main aspects layout split: all aspects list (left) & detail panel (right) */}
       <div className="aspect-analysis-layout">
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignSelf: 'start' }}>
           <CardHeaderWithGuide
@@ -656,9 +640,8 @@ function AspectAnalysis({ data }) {
               const polarityColor = stats.avg_polarity >= 0 ? 'var(--green)' : 'var(--red)';
               const isSelected = selectedAspect === aspect;
 
-  // Clicking an aspect row toggles the detail panel: selecting a different
-  // aspect shows its data, clicking the already-selected aspect deselects it.
-  return (
+              // Toggle detail panel: click new aspect to open, click same aspect to close.
+              return (
     <button
       type="button"
       key={aspect}
@@ -708,6 +691,7 @@ function AspectAnalysis({ data }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {activeDetail && (
+            /* Detail card for the selected aspect */
             <div className="card" style={{ borderLeft: `3px solid ${activeDetail.avg_polarity >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
               <div className="card-body">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -739,6 +723,7 @@ function AspectAnalysis({ data }) {
           )}
 
           {selectedAspectThemes && (
+            /* Praise and complaint keywords/phrases for the selected aspect */
             <div className="card">
               <CardHeaderWithGuide
                 title="Selected Aspect Complaints and Praises"
@@ -781,6 +766,7 @@ function AspectAnalysis({ data }) {
           )}
 
           {activeDetail && actionInsights.length > 0 && (
+            /* Rule-based actionable insights generated for the selected aspect */
             <div className="card">
               <CardHeaderWithGuide
                 title="Quick Action Insights"
@@ -820,6 +806,7 @@ function AspectAnalysis({ data }) {
           )}
 
           {selectedAspectTrend.length > 0 && (
+            /* Monthly trend chart showing sentiment share and mention volume over time */
             <div className="card">
               <CardHeaderWithGuide
                 title="Selected Aspect Trend Over Time"
@@ -909,6 +896,7 @@ function AspectAnalysis({ data }) {
             </div>
           )}
 
+          {/* Summary charts: Sentiment by Aspect (stacked bar) and Polarity Radar */}
           <div className="grid grid-2">
             <div className="card">
               <CardHeaderWithGuide

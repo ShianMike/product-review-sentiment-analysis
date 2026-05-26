@@ -81,7 +81,20 @@ os.makedirs(PROJECTS_FOLDER, exist_ok=True)
 
 
 def load_model_comparison_results():
-    """Load saved multi-model comparison results for the Model Info screen."""
+    """
+    Loads historical candidate model performance comparisons from disk.
+
+    This function reads and returns the pre-computed training metrics saved during
+    multi-model evaluation. If the comparison JSON file is missing or corrupted,
+    it falls back to loading empty results alongside standard candidate model metadata.
+
+    Returns:
+        dict: A dictionary structure containing:
+            - models: list of candidate model definitions (id, name, feature_type, description).
+            - results: list of evaluation metrics (accuracy, macro metrics, speed, splits) per model.
+            - source_file: name of the source JSON file on disk, or None if load failed.
+    """
+    # 1. Fall back to empty metrics if comparison file is not present on disk
     if not os.path.exists(MODEL_COMPARISON_RESULTS_PATH):
         return {
             'models': list_model_candidates(),
@@ -89,6 +102,7 @@ def load_model_comparison_results():
             'source_file': None,
         }
 
+    # 2. Read and parse saved JSON metrics
     try:
         with open(MODEL_COMPARISON_RESULTS_PATH, 'r', encoding='utf-8') as file:
             payload = json.load(file)
@@ -100,6 +114,7 @@ def load_model_comparison_results():
             'source_file': None,
         }
 
+    # 3. Extract models array and results array with robust type safety checks
     models = payload.get('models') if isinstance(payload.get('models'), list) else list_model_candidates()
     results = payload.get('results') if isinstance(payload.get('results'), list) else []
     return {
@@ -191,7 +206,7 @@ def read_csv_safe(file):
     encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'utf-16', 'iso-8859-1']
     # Read once so each retry operates on identical bytes.
     raw = file.read()
-    
+
     for enc in encodings:
         try:
             from io import BytesIO
@@ -201,7 +216,7 @@ def read_csv_safe(file):
                 return df
         except (UnicodeDecodeError, pd.errors.ParserError):
             continue
-    
+
     # Last resort: latin-1 never fails
     from io import BytesIO
     return pd.read_csv(BytesIO(raw), encoding='latin-1')
@@ -226,7 +241,7 @@ classifier = get_classifier()
 
 def ensure_latest_classifier():
     """Hot-reload saved model artifacts when retrained files change on disk.
-    
+
     Called before every prediction so the running server automatically picks up
     a freshly trained model without needing a manual restart.
     """
@@ -396,7 +411,10 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     sentiment_dist = processed_df[sentiment_col].value_counts().to_dict()
     total = len(processed_df)
 
-    # Normalize top-line sentiment counts into percentage cards for the UI.
+    # Build the data for the Overview cards and the sentiment pie chart.
+    # We count how many reviews are positive, neutral, and negative, then
+    # turn each count into a percentage of the total. The frontend reads
+    # these straight into the three sentiment cards and the pie chart.
     sentiment_distribution = {
         'positive': {
             'count': int(sentiment_dist.get('positive', 0)),
@@ -412,22 +430,25 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
         }
     }
 
-    # Feed the overall monthly sentiment charts only when usable date data exists.
+    # Build the monthly trend chart data, but only if the file has dates.
     trends = build_monthly_trends(processed_df, sentiment_col)
 
     rating_dist = None
     if 'rating' in processed_df.columns:
-        # Feed the rating histogram / bar chart. Keep keys stringified for stable
-        # JSON output and predictable frontend chart handling.
+        # Build the data for the Rating Distribution bar chart on the Overview.
+        # We count how many reviews each star rating has (1, 2, 3, 4, 5), then
+        # save the keys as strings so the JSON stays clean and the chart can
+        # use them as labels without extra work.
         rating_dist = processed_df['rating'].value_counts().sort_index().to_dict()
         rating_dist = {str(k): int(v) for k, v in rating_dist.items()}
 
-    # Feed the product comparison cards/table plus the per-product trend chart.
+    # Build the product-level sentiment data. This feeds the Product-Level
+    # Sentiment table, the product filter dropdown, and the per-product trend.
     product_summary = build_product_summary(processed_df, sentiment_col)
     product_trends = build_product_trends(processed_df, sentiment_col)
 
-    # Feed the reviews table payload. The first dashboard payload is capped for
-    # speed; the Reviews tab can later ask the backend for all rows.
+    # Build the data for the Reviews table. Only the first 500 rows are sent
+    # to keep the dashboard fast. The Reviews tab can later ask for all rows.
     reviews_data = build_reviews_table(processed_df, sentiment_col, limit=500)
 
     _emit_progress(progress_callback, 95, 'Export', 'Saving processed export files...')
@@ -437,11 +458,12 @@ def _analyze_dataframe(df, filename, text_col=None, progress_callback=None):
     # can re-aggregate per-product data without re-running ABSA.
     processed_df.to_csv(export_path, index=False)
 
-    # Response keys are named to match frontend visualization sections directly.
-    # This keeps the fetch/render contract simple:
-    # - backend performs the heavy aggregation work once
-    # - frontend receives one ready-to-render payload
-    # - child components only do light reshaping for chart libraries
+    # The keys below match the names the frontend already expects, so each
+    # part of the dashboard can read its own slice without extra work:
+    # - backend does the heavy counting and grouping just once here
+    # - frontend gets one finished result it can show right away
+    # - the Overview, Aspects, Themes, Trends, and Reviews tabs only do
+    #   small reshaping for their charts (for example, building pie data)
     response = {
         'status': 'success',
         'filename': filename,
@@ -581,12 +603,45 @@ def health_check():
 
 @app.route('/api/model-info', methods=['GET'])
 def model_info():
-    """Return model metrics for the dashboard Model Info panel."""
-    # This endpoint backs the Model Info page and documents final-model choice.
+    """
+    HTTP GET Endpoint: Returns performance and architecture details of the sentiment model.
+
+    This endpoint retrieves the active model type, dataset training dimensions, test split
+    performance scores (accuracy, macro precision, macro recall, and macro F1), class-level reports,
+    confusion matrix cells, configurations of other tested candidate models, and aspect category labels.
+
+    Response Payload (JSON):
+    {
+        "model_type": "Logistic Regression + TF-IDF",
+        "evaluation_metrics": {
+            "accuracy": float,
+            "precision_macro": float,
+            "recall_macro": float,
+            "f1_macro": float,
+            "train_size": int,
+            "test_size": int,
+            "class_labels": ["negative", "neutral", "positive"],
+            "classification_report": { ... },
+            "confusion_matrix": [[...], [...], [...]]
+        },
+        "candidate_models": [
+            { "id": str, "name": str, "feature_type": str, "description": str },
+            ...
+        ],
+        "model_comparison": {
+            "models": [...],
+            "results": [...],
+            "source_file": str
+        },
+        "aspect_categories": ["aspect1", "aspect2", ...]
+    }
+    """
+    # 1. Ensure model weights are loaded and classifier is initialized
     ensure_latest_classifier()
     if not classifier.is_trained:
         return _error_response('Model not trained yet', status_code=400, code='model_not_trained')
-    
+
+    # 2. Package model metadata, metrics, and comparisons
     return jsonify({
         'model_type': 'Logistic Regression + TF-IDF',
         'evaluation_metrics': classifier.evaluation_metrics,
@@ -612,27 +667,27 @@ def upload_and_analyze():
     """
     if 'file' not in request.files:
         return _error_response('No file uploaded', status_code=400, code='missing_file')
-    
+
     file = request.files['file']
     if not file.filename:
         return _error_response('No file selected', status_code=400, code='missing_filename')
-    
+
     filename: str = file.filename
     try:
         ext = _validate_extension(filename)
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
-    
+
     try:
         # Read file into DataFrame with encoding fallback
         if ext == '.csv':
             df = read_csv_safe(file)
         else:
             df = pd.read_excel(file)
-        
+
         if len(df) == 0:
             return jsonify({'error': 'Uploaded file is empty'}), 400
-        
+
         # Return column info for user to confirm mapping
         return jsonify({
             'status': 'file_received',
@@ -643,7 +698,7 @@ def upload_and_analyze():
             'sample_data': df.head(3).fillna('').to_dict(orient='records'),
             'message': 'File uploaded successfully. Use /api/analyze to process.'
         })
-    
+
     except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
         logger.warning('Upload parse issue for %s: %s', filename, exc)
         return _error_response(f'Error reading file: {str(exc)}', status_code=400, code='file_parse_error')
@@ -673,27 +728,27 @@ def analyze():
     # → response flow for small files and development testing.
     if 'file' not in request.files:
         return _error_response('No file uploaded', status_code=400, code='missing_file')
-    
+
     file = request.files['file']
     if not file.filename:
         return _error_response('No file selected', status_code=400, code='missing_filename')
-    
+
     filename: str = file.filename
     try:
         ext = _validate_extension(filename)
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
-    
+
     try:
         # Read file with encoding fallback
         if ext == '.csv':
             df = read_csv_safe(file)
         else:
             df = pd.read_excel(file)
-        
+
         if len(df) == 0:
             return jsonify({'error': 'Uploaded file is empty'}), 400
-        
+
         # Get column mappings from form data
         text_col = request.form.get('text_column', None)
 
@@ -701,7 +756,7 @@ def analyze():
         # storing it in a job record first.
         response = _analyze_dataframe(df=df, filename=filename, text_col=text_col)
         return jsonify(response)
-    
+
     except ValueError as exc:
         logger.warning('Analysis validation issue for %s: %s', filename, exc)
         return _error_response(str(exc), status_code=400, code='analysis_validation_error')
@@ -864,16 +919,11 @@ def export_file(filename):
 
 def _build_aspect_export_rows(data):
     """
-    Flatten the nested aspect analytics payload into a list of flat row-dicts.
+    Flattens the nested aspect analytics dictionary into a tabular list of dictionaries.
 
-    Combines data from three sources:
-    - aspect_summary       → mention counts, polarity, positive/negative percentages
-    - aspect_theme_summary → top praise and complaint phrases per aspect
-    - aspect_trends        → latest monthly sentiment snapshot
-
-    Each row represents one aspect and is suitable for writing to CSV or JSON.
-    Rows are sorted by total_mentions descending so the most-discussed aspects
-    appear first in the exported file.
+    This merges data from aspect_summary (mention totals, polarity), aspect_theme_summary (praise
+    and complaint phrase counts), and aspect_trends (the latest month's trend data point) into a single row
+    per aspect, sorted by total mentions descending.
     """
     aspect_summary = data.get('aspect_summary') or {}
     aspect_theme_summary = data.get('aspect_theme_summary') or {}
@@ -947,19 +997,19 @@ def export_json():
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
+
         filename = f"analysis_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = os.path.join(EXPORT_FOLDER, filename)
-        
+
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2, default=str)
-        
+
         return jsonify({
             'status': 'success',
             'filename': filename,
             'download_url': f'/api/export/{filename}'
         })
-    
+
     except Exception as exc:
         logger.exception('JSON export failed')
         return jsonify({'error': str(exc)}), 500
@@ -967,11 +1017,11 @@ def export_json():
 
 @app.route('/api/export-aspects/json', methods=['POST'])
 def export_aspects_json():
-    """Export a dedicated aspect-analytics report as a JSON file.
+    """
+    Saves a tabular aspect-analytics report as a JSON file in the export folder.
 
-    Accepts the analysis payload, flattens per-aspect metrics via
-    _build_aspect_export_rows, appends a generation timestamp, and saves
-    the result to the exports/ folder. Returns the download URL.
+    Flattens the nested results using _build_aspect_export_rows, timestamps the payload,
+    writes it to the filesystem, and returns the public file URL.
     """
     try:
         data = request.get_json() or {}
@@ -1001,10 +1051,11 @@ def export_aspects_json():
 
 @app.route('/api/export-aspects/csv', methods=['POST'])
 def export_aspects_csv():
-    """Export a dedicated aspect-analytics report as a CSV file.
+    """
+    Saves a tabular aspect-analytics report as a CSV file in the export folder.
 
-    Produces one row per aspect with all key metrics so recipients can open
-    the file in Excel or any BI tool without further data wrangling.
+    Flattens metrics into rows and exports them as a CSV so users can open the report
+    directly in spreadsheet applications like Microsoft Excel.
     """
     try:
         data = request.get_json() or {}
@@ -1222,38 +1273,65 @@ def product_analysis():
 @app.route('/api/predict', methods=['POST'])
 def predict_single():
     """
-    Predict sentiment and aspects for one typed review.
+    HTTP POST Endpoint: Predicts sentiment and extracts aspects for a single user-submitted text string.
 
-    Accepts a JSON body with a `text` field and returns:
-    - predicted_sentiment  : positive / neutral / negative
-    - confidence           : probability of the top label
-    - probabilities        : full class probability breakdown
-    - aspects              : per-aspect sentiment from ABSA
+    This route provides a lightweight sandbox for users to test the classification model and aspect
+    extraction rules in real-time. By receiving a raw text string, running it through the exact same
+    preprocessing, classification, and aspect extraction pipeline used for bulk datasets, it guarantees
+    that the sandbox behavior is identical to the batch analysis.
 
-    Used by the Single Predict panel to test the trained classifier without
-    uploading a full dataset.
+    Expected Request Payload (JSON):
+    {
+        "text": "The verbatim review content to analyze"
+    }
+
+    Response Payload (JSON):
+    {
+        "text": "Original verbatim text string",
+        "cleaned_text": "Text after removing noise (emojis, punctuation, special chars)",
+        "predicted_sentiment": "positive | neutral | negative",
+        "confidence": 0.XXXX (float value between 0.0 and 1.0 representing probability of the chosen class),
+        "probabilities": {
+            "positive": float,
+            "neutral": float,
+            "negative": float
+        },
+        "aspects": {
+            "aspect_term": {
+                "label": "positive | neutral | negative",
+                "polarity": float (-1.0 to 1.0)
+            },
+            ...
+        }
+    }
     """
-    # Single-text prediction reuses the same preprocessing and classifier stack
-    # as dataset analysis so behavior stays consistent.
+    # 1. Parse and validate request body
+    # Extracts the raw JSON payload and checks if the required 'text' parameter is present.
     data = request.get_json()
     if not data or 'text' not in data:
         return jsonify({'error': 'Please provide a "text" field'}), 400
-    
+
     text = data['text']
     if not text.strip():
         return jsonify({'error': 'Text is empty'}), 400
-    
-    # Reuse training-time preprocessing for consistency with model expectations.
+
+    # 2. Preprocess the text
+    # Applies the identical token cleaning, normalization, and contraction expansion
+    # as used during model training to ensure prediction features align with classifier expectations.
     processed = preprocess_text(text)
-    
-    # Predict plus optional rule calibration (handled in classifier).
+
+    # 3. Load latest model state and run prediction
+    # Verifies if the classifier files have been modified or need loading, ensuring we always
+    # predict with the most up-to-date weights.
     ensure_latest_classifier()
     label, confidence, prob_dict = classifier.predict_single(processed, raw_text=text)
-    
-    # ABSA
+
+    # 4. Aspect-Based Sentiment Analysis (ABSA)
+    # Lazy-loads the ABSA analyzer and extracts aspect-sentiment pairs from the original text.
     from _4_absa import analyze_aspects
     aspects = analyze_aspects(text)
-    
+
+    # 5. Build and return result JSON payload
     return jsonify({
         'text': text,
         'cleaned_text': clean_text(text),

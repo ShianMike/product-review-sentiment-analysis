@@ -71,8 +71,9 @@ export const predictSingle = (text) => {
   return api.post('/api/predict', { text });
 };
 
-// Export helpers post already-fetched dashboard payloads back to the backend so
-// files can be generated and downloaded without recomputing the analysis.
+// JSON export helper.
+// The frontend sends the dashboard summary to the backend. The backend saves it
+// as a JSON file and sends back the filename.
 export const exportJson = (data) => {
   return api.post('/api/export-json', data);
 };
@@ -85,7 +86,9 @@ export const exportAspectsCsv = (data) => {
   return api.post('/api/export-aspects/csv', data);
 };
 
-// Convert a backend export filename into a direct download URL.
+// Download URL helper.
+// The backend gives only a filename, so this builds the full URL that the
+// browser can open to download the CSV or JSON file.
 export const getExportUrl = (filename) => {
   return `${API_BASE}/api/export/${filename}`;
 };

@@ -2,6 +2,9 @@
 # health checks, and export endpoints for the dashboard.
 flask==3.1.0
 
+# gunicorn runs the Flask app in production hosts such as Render.
+gunicorn==23.0.0
+
 # flask-cors lets the frontend dev server call the Flask API from another
 # origin during local development.
 flask-cors==5.0.1

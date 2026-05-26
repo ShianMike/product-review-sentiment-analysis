@@ -1,13 +1,8 @@
 """
 [Backend Step 7 of 13] Theme & Keyword Extraction
 
-This file finds common keywords, phrases, praises, and complaints.
-
-Presentation flow:
-- Step 1: Use TF-IDF to rank words/phrases that stand out in the reviews.
-- Step 2: Count repeated two-word and three-word phrases.
-- Step 3: Separate theme evidence by positive, neutral, and negative sentiment.
-- Step 4: Return theme data for keyword lists, phrase cards, and word clouds.
+Identifies overall stand-out keywords using TF-IDF, recurring multi-word phrases using CountVectorizer,
+and builds sentiment-grouped outputs to drive word clouds and tabbed lists.
 """
 
 from collections import Counter
@@ -18,7 +13,8 @@ from nltk.corpus import stopwords
 
 
 # ─── Stopword list ───────────────────────────────────────────────────────────────
-# Extend NLTK stopwords with common null-like placeholders seen in exported datasets.
+# Combines NLTK english stop words with data placeholder terms (e.g. 'nan', 'null')
+# while keeping negations (e.g. 'not', 'never') since they alter phrase sentiment.
 NEGATION_WORDS = {'not', 'no', 'nor', 'never'}
 PLACEHOLDER_WORDS = {'nan', 'none', 'null'}
 
@@ -42,27 +38,17 @@ WORD_RE = re.compile(r"[a-z0-9']+")
 
 def extract_keywords_tfidf(texts, top_n=20):
     """
-    Extract important keywords using TF-IDF scoring.
+    Ranks stand-out words and bigrams across the review dataset using TF-IDF scoring.
 
-    Simple explanation:
-    - TF gives weight to words that appear often.
-    - IDF lowers the weight of words that appear almost everywhere.
-    - The final score highlights terms that are both common and distinctive.
-    
-    Parameters:
-    - texts: list of preprocessed review texts
-    - top_n: number of top keywords to return
-    
-    Returns:
-    - List of (keyword, tfidf_score) tuples
+    TF-IDF highlights words that are highly frequent within these specific reviews but
+    infrequent across general language usage, effectively filtering out common filler words.
     """
     if not texts or len(texts) == 0:
         return []
-    
+
     custom_stop = list(STOP_WORDS)
-    # TF-IDF vectorization happens in this block. It converts text into weighted
-    # numeric features so we can rank keywords by importance, not just frequency.
-    # Use unigrams+bigrams to capture both single terms and short product phrases.
+    # Instantiate TF-IDF vectorizer. We allow single words (unigrams) and 2-word phrases (bigrams)
+    # to capture context-dependent phrases like "battery life" or "customer support".
     vectorizer = TfidfVectorizer(
         max_features=5000,
         ngram_range=(1, 2),
@@ -70,37 +56,36 @@ def extract_keywords_tfidf(texts, top_n=20):
         max_df=0.9,
         stop_words=custom_stop
     )
-    
+
     try:
         tfidf_matrix = vectorizer.fit_transform(texts)
     except ValueError:
-        # Return empty output for degenerate corpora (for example all-stopword input).
+        # If the input is empty or only stopwords, just return an empty list.
         return []
-    
-    # Average per-term TF-IDF across all documents to get corpus-level theme signals.
-    # Terms with larger mean scores are treated as stronger dashboard keywords.
+
+    # Computes the average TF-IDF weight for each keyword vocabulary term across the entire text corpus.
     avg_scores = np.asarray(tfidf_matrix.mean(axis=0)).flatten()  # type: ignore[union-attr]
     feature_names = vectorizer.get_feature_names_out()
-    
-    # Sort by score
+
+    # Identifies and returns the top-N highest scoring keywords, rounded for precision.
     top_indices = avg_scores.argsort()[-top_n:][::-1]
     keywords = [(feature_names[i], round(float(avg_scores[i]), 4)) for i in top_indices]
-    
+
     return keywords
 
 
 def extract_frequent_phrases(texts, top_n=15):
     """
-    Extract most frequent bigrams/trigrams from review texts.
+    Extracts and counts recurring multi-word phrases (2-word bigrams and 3-word trigrams).
 
-    Phrase extraction complements TF-IDF by surfacing recurring multi-word issues
-    and strengths that are easier to explain in dashboards.
+    Phrase extraction complements TF-IDF by capturing concrete descriptors (e.g., "customer service")
+    which are much easier for non-technical users to quickly interpret than solitary keywords.
     """
     if not texts or len(texts) == 0:
         return []
-    
+
     custom_stop = list(STOP_WORDS)
-    # Focus on phrase-level signals that usually describe concrete issues/features.
+    # Configure token counter. Ignores single words, focusing entirely on multi-word patterns.
     vectorizer = CountVectorizer(
         ngram_range=(2, 3),
         min_df=3,
@@ -108,21 +93,21 @@ def extract_frequent_phrases(texts, top_n=15):
         stop_words=custom_stop,
         max_features=3000
     )
-    
+
     try:
         count_matrix = vectorizer.fit_transform(texts)
     except ValueError:
         # Keep behavior consistent with other extractors on sparse/invalid input.
         return []
-    
+
     # Sum counts for each phrase
     phrase_counts = np.asarray(count_matrix.sum(axis=0)).flatten()  # type: ignore[union-attr]
     feature_names = vectorizer.get_feature_names_out()
-    
+
     # Sort by frequency
     top_indices = phrase_counts.argsort()[-top_n:][::-1]
     phrases = [(feature_names[i], int(phrase_counts[i])) for i in top_indices]
-    
+
     return phrases
 
 
@@ -130,36 +115,35 @@ def extract_frequent_phrases(texts, top_n=15):
 
 def extract_themes_by_sentiment(texts, sentiment_labels, top_n=10):
     """
-    Extract top keywords/themes separated by sentiment category.
-    
-    Returns:
-    - Dict with 'positive', 'neutral', 'negative' keys,
-      each containing top keywords for that sentiment.
+    Groups reviews by predicted sentiment and extracts top keywords/phrases for each group.
+
+    Powers the 'Keywords by Sentiment' tabbed layout where users can inspect positive, negative, and
+    neutral vocabulary splits side-by-side.
     """
     themes = {}
-    
+
     for sentiment in ['positive', 'neutral', 'negative']:
-        # Filter texts by sentiment
+        # Collects reviews matching the target sentiment label.
         filtered = [t for t, s in zip(texts, sentiment_labels) if s == sentiment]
-        
+
         if len(filtered) < 5:
-            # Very small slices are too noisy; return metadata with empty lists.
+            # Skips extraction for small cohorts to prevent sparse, noisy keyword listings.
             themes[sentiment] = {
                 'keywords': [],
                 'phrases': [],
                 'count': len(filtered)
             }
             continue
-        
+
         keywords = extract_keywords_tfidf(filtered, top_n=top_n)
         phrases = extract_frequent_phrases(filtered, top_n=top_n)
-        
+
         themes[sentiment] = {
             'keywords': keywords,
             'phrases': phrases,
             'count': len(filtered)
         }
-    
+
     return themes
 
 
@@ -167,16 +151,15 @@ def extract_themes_by_sentiment(texts, sentiment_labels, top_n=10):
 
 def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
     """
-    Extract complaint themes from negative reviews and praise themes from
-    positive reviews.
-    
-    Returns dict with 'complaints' and 'praises' keys.
+    Extracts complaint terms from negative reviews and praise terms from positive reviews.
+
+    Maintains a symmetric schema mapping so the frontend can easily compare strengths and weaknesses.
     """
-    # Split strengths and pain points so users do not need to read every review.
+    # Segregates reviews into positive (praise) and negative (complaint) texts.
     complaints_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
     praises_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']
-    
-    # Keep both buckets in a symmetric schema so frontend cards can reuse rendering code.
+
+    # Bundles the extracted keywords and common bigram/trigram phrases for both lists.
     result = {
         'complaints': {
             'count': len(complaints_texts),
@@ -189,7 +172,7 @@ def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
             'phrases': extract_frequent_phrases(praises_texts, top_n=top_n)
         }
     }
-    
+
     return result
 
 
@@ -197,22 +180,23 @@ def extract_complaints_and_praises(texts, sentiment_labels, top_n=10):
 
 def extract_word_cloud_data(texts, top_n=50):
     """
-    Extract word frequency data suitable for word cloud visualization.
-    Returns list of {text, value} dicts.
+    Extracts term frequencies for the top distinct words, formatted for word cloud rendering.
+
+    Calculates raw term occurrences. The frontend normalizes these counts to compute relative font sizes.
     """
     if not texts or len(texts) == 0:
         return []
-    
-    # Count all words after lightweight token cleanup. Negated phrases are
-    # kept together so "not good" does not become a misleading positive term.
+
+    # Tokenizes and counts terms. Negations are kept together (e.g. "not good" instead of "not" and "good")
+    # to prevent negative comments from falsely showing up as positive keywords.
     all_words = []
     for text in texts:
         if isinstance(text, str):
             all_words.extend(_word_cloud_terms(text))
-    
+
     word_counts = Counter(all_words)
     top_words = word_counts.most_common(top_n)
-    
+
     return [{'text': word, 'value': count} for word, count in top_words]
 
 
@@ -251,10 +235,9 @@ def _word_cloud_terms(text):
 
 def extract_word_clouds_by_sentiment(texts, sentiment_labels, top_n=50):
     """
-    Build separate word-cloud frequency payloads for praise and complaint text.
+    Builds separate word cloud frequency mappings for positive (praise) and negative (complaint) reviews.
 
-    Positive reviews feed the praise cloud. Negative reviews feed the complaint
-    cloud. The overall cloud is kept for backward-compatible dashboards.
+    Splitting positive and negative lists prevents dominant positive terms from drowning out negative warnings.
     """
     positive_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'positive']
     negative_texts = [t for t, s in zip(texts, sentiment_labels) if s == 'negative']
@@ -270,26 +253,14 @@ def extract_word_clouds_by_sentiment(texts, sentiment_labels, top_n=50):
 
 def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
     """
-    Build the full theme payload used by the dashboard.
-    
-    Parameters:
-    - texts: original review texts (for ABSA/readability)
-    - sentiment_labels: predicted sentiment labels
-    - processed_texts: preprocessed texts (for TF-IDF keyword extraction)
-    
-    Returns complete theme analysis dict with stable keys for API consumers.
+    Compiles all TF-IDF keywords, bigram phrases, sentiment groups, and word clouds in a single pass.
+
+    Returns a unified payload dictionary mapping directly to UI components on the Themes tab.
     """
-    # TF-IDF works best on normalized/clean text; use preprocessed text when provided.
+    # Uses cleaned processed text for TF-IDF calculations when available to improve keyword distinctiveness.
     analysis_texts = processed_texts if processed_texts is not None else texts
-    
-    # Build all theme artifacts in one pass so callers receive a stable response
-    # schema. Each key maps to a specific visualization block in the dashboard:
-    # overall_keywords -> keyword chips/list
-    # overall_phrases -> recurring phrase panels
-    # themes_by_sentiment -> sentiment-specific breakdown cards/tabs
-    # complaints_and_praises -> praise/complaint summary cards
-    # word_clouds -> sentiment-specific praise and complaint word clouds
-    # word_cloud_data -> legacy overall word cloud frequencies
+
+    # Aggregates overall keywords, sentiment breakdowns, praises/complaints cards, and word cloud frequencies.
     word_clouds = extract_word_clouds_by_sentiment(
         analysis_texts, sentiment_labels, top_n=80
     )
@@ -305,7 +276,7 @@ def generate_theme_summary(texts, sentiment_labels, processed_texts=None):
         'word_clouds': word_clouds,
         'word_cloud_data': word_clouds['overall']
     }
-    
+
     return summary
 
 
@@ -320,7 +291,7 @@ if __name__ == '__main__':
         "good value price reasonable affordable great deal"
     ]
     sample_labels = ['positive', 'negative', 'positive', 'positive', 'negative', 'positive']
-    
+
     result = extract_complaints_and_praises(sample_texts, sample_labels, top_n=5)
     print("Complaints:", result['complaints']['keywords'])
     print("Praises:", result['praises']['keywords'])

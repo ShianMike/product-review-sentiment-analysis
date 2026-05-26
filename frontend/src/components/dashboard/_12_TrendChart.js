@@ -1,14 +1,30 @@
 // _12_TrendChart.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Renders the "Trends" tab of the dashboard.
-// All time-series data was computed by the backend during the analysis run.
-// This component's job is purely visual: reshape the rows for Recharts,
-// derive a few helper metrics, and let the user filter by product or date.
+// [Trends Tab] Visualization of Month-over-Month Sentiment and Review Volume
 //
-// Key derived fields added to each row:
-//   neutralRate      – (neutral / total) * 100 (not returned by backend directly)
-//   netSentiment     – positive_pct - negative_pct (positive-vs-negative gap)
-//   sentimentMomentum – positive-vs-negative gap vs the previous month
+// This React component handles the "Trends" tab in our review dashboard.
+//
+// Background context and design choices:
+// 1. Where does the data come from?
+//    - The backend does all the heavy lifting (date parsing, grouping, and
+//      counting positive/neutral/negative reviews per month) beforehand during the
+//      offline pipeline. The final outputs are structured in the main response:
+//      - `trends` contains overall month-by-month sentiment aggregates.
+//      - `product_trends` contains optional product-specific month-by-month arrays.
+// 2. What is this component's role?
+//    - It is purely visual and interactive. It does not query the database or
+//      re-run sentiment models. It reads the precomputed data, lets users
+//      apply filters (by product and custom start/end months) client-side,
+//      and maps the filtered series to interactive Recharts graphs.
+// 3. Derived Metrics calculated on-the-fly:
+//    - `neutralRate`: Calculates what percentage of reviews each month were
+//      neutral. The backend outputs positive/negative percentages, so the frontend
+//      derives this dynamically as: (neutral / total) * 100.
+//    - `netSentiment`: Measures the positive-vs-negative gap (Positive % - Negative %).
+//      A positive gap indicates healthy sentiment, while a negative gap suggests
+//      buyer complaints outpace praise.
+//    - `sentimentMomentum`: Computes month-over-month change in `netSentiment`
+//      to show whether the sentiment trajectory is improving or softening.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -18,6 +34,8 @@ import {
 import { TrendingUp, TrendingDown, BarChart3, ChevronDown } from 'lucide-react';
 import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 
+// Reusable styling object for Recharts tooltips.
+// Uses CSS custom properties (variables) to maintain light/dark theme compatibility.
 const tooltipStyle = {
   background: 'var(--bg-card)',
   border: '1px solid var(--border)',
@@ -28,15 +46,18 @@ const tooltipStyle = {
 
 const EMPTY_TRENDS = [];
 
+// Helper function to truncate long product identifiers or names in dropdowns and labels.
+// This prevents extremely long product keys from breaking the CSS grid or spilling
+// over layout boundaries.
 function truncateId(text, max = 50) {
-  // Keep long product IDs readable in selectors and chart labels.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
 
-// formatMonthLabel converts a YYYY-MM string into a short locale-aware label
-// (e.g. "Mar 2024") for X axis ticks. Invalid inputs are passed through as-is
-// to avoid rendering blank axis labels if the data shape is unexpected.
+// Helper function to convert a standard Year-Month string (e.g. "2026-04")
+// into a locale-aware formatted string (e.g. "Apr 2026").
+// It handles input validation gracefully, uses Date.UTC to avoid local timezone
+// shift errors, and falls back to the original string if parsing fails to avoid blank axis labels.
 function formatMonthLabel(monthValue) {
   const [yearRaw, monthRaw] = String(monthValue).split('-');
   const year = Number(yearRaw);
@@ -49,32 +70,37 @@ function formatMonthLabel(monthValue) {
 }
 
 /**
- * TrendChart renders time-based visualizations from backend-generated trend rows.
+ * TrendChart Component
  *
- * The fetch already happened before this component mounts. The backend returns:
- * - `trends` for overall month-level sentiment movement
- * - `product_trends` for optional product-specific month series
- *
- * This component's job is to:
- * 1) select which trend series to view
- * 2) normalize month labels and derive a few helper metrics
- * 3) feed those rows into Recharts area/line/bar charts
- *
- * The backend already groups sentiment by month. Frontend calculations here
- * only derive visualization helpers such as neutral rate, net sentiment, and
- * momentum so the chart labels remain readable.
+ * Visualizes time-based sentiment and volume movements from precomputed backend rows.
+ * Handles client-side product filtering, custom date range filtering, and computes
+ * trend highlights (Best Month, Worst Month, Volume Peaks, Latest Month) along with
+ * 4 key visualizations (Stacked Review Counts, Good/Neutral/Bad Line Share,
+ * Overall Review Volume, and Side-by-Side Good vs. Bad review comparison).
  */
 function TrendChart({ data }) {
+  // --- STATE DEFINITIONS ---
+  // activeGuideKey: tracks which visual card or chart explanation is open in the interactive modal.
+  // When null, the modal is closed. When set to a string (like 'latest' or 'mix'), it displays that specific help text.
   const [activeGuideKey, setActiveGuideKey] = useState(null);
+
+  // selectedProductId: identifies which product we are analyzing.
+  // Defaults to 'all' for dataset-wide trends. Selecting a specific product filters the charts on-the-fly.
   const [selectedProductId, setSelectedProductId] = useState('all');
+
+  // startMonth / endMonth: hold the active boundary selections for the date range filter.
+  // Stored as "YYYY-MM" strings (e.g., "2026-01") matching the backend data buckets.
   const [startMonth, setStartMonth] = useState('');
   const [endMonth, setEndMonth] = useState('');
+
+  // Extract base series arrays provided by our dashboard analysis loader.
   const trends = Array.isArray(data?.trends) ? data.trends : EMPTY_TRENDS;
   const productTrends = data?.product_trends || null;
   const productTrendOptions = Array.isArray(productTrends?.product_ids) ? productTrends.product_ids : EMPTY_TRENDS;
 
-  // Switch between overall trends and one selected product's trend series
-  // without making another backend request.
+  // --- MEMOIZED DATA SELECTORS ---
+  // activeRawTrends: resolves whether to display the overall time series or the series for a specific product.
+  // By using useMemo, we prevent re-extracting this array when unrelated states change (such as opening the guide modal).
   const activeRawTrends = useMemo(() => {
     if (selectedProductId !== 'all') {
       const selected = productTrends?.products?.[selectedProductId];
@@ -85,8 +111,9 @@ function TrendChart({ data }) {
 
   const hasTrendData = activeRawTrends.length > 0;
 
-  // If the currently selected product was removed from the available list
-  // (e.g. after a new upload), reset to 'all' to avoid a broken filter state.
+  // --- SIDE EFFECTS / CLEANUP ---
+  // Reset selectedProductId to 'all' if the user uploads a new dataset where the previously
+  // selected product ID no longer exists. This keeps our filtering state synchronized and error-free.
   useEffect(() => {
     if (selectedProductId === 'all') {
       return;
@@ -96,14 +123,19 @@ function TrendChart({ data }) {
     }
   }, [selectedProductId, productTrendOptions]);
 
+  // --- DATA SHAPING & METRICS DERIVATION ---
+  // trendData: maps and shapes raw backend rows for our charts.
+  // We perform two key operations here:
+  // 1. We standardize the 'month' field format to YYYY-MM.
+  // 2. We calculate visual helpers that the backend doesn't output directly:
+  //    - neutralRate: (neutral reviews count / total reviews) * 100, rounded to 1 decimal place.
+  //    - netSentiment: positiveRate minus negativeRate. This is a crucial business KPI; positive values
+  //      show that praise dominates, while negative values warn that complaints outweigh satisfaction.
+  // 3. We sort chronologically to ensure lines and areas draw left-to-right over time.
   const trendData = useMemo(
     () => activeRawTrends
       .map((t) => {
         const month = t.month.length > 7 ? t.month.substring(0, 7) : t.month;
-        // Backend gives counts and positive/negative percentages. The frontend
-        // derives neutral percentage and positive-vs-negative gap for charts.
-        // neutralRate: how many reviews in this month were neutral (as %)
-        // netSentiment: positive_pct minus negative_pct; positive = healthier
         const neutralRate = Math.round((t.neutral / t.total) * 100 * 10) / 10;
         const netSentiment = Math.round((t.positive_pct - t.negative_pct) * 10) / 10;
 
@@ -120,11 +152,14 @@ function TrendChart({ data }) {
     [activeRawTrends]
   );
 
+  // monthOptions: extracts unique sorted month buckets so our dropdowns can display valid timeline values.
   const monthOptions = useMemo(
     () => Array.from(new Set(trendData.map((entry) => entry.month))),
     [trendData]
   );
 
+  // Synchronize start/end date filters when a new timeline is loaded.
+  // By default, we select the earliest month as the start point and the latest month as the end point.
   useEffect(() => {
     if (monthOptions.length === 0) {
       setStartMonth('');
@@ -140,14 +175,18 @@ function TrendChart({ data }) {
   const selectedStartMonth = monthOptions.includes(startMonth) ? startMonth : defaultStartMonth;
   const selectedEndMonth = monthOptions.includes(endMonth) ? endMonth : defaultEndMonth;
 
+  // Filter our data array to only include records that fall within the selected start and end months.
   const filteredBaseData = trendData.filter((entry) => {
     const isAfterStart = !selectedStartMonth || entry.month >= selectedStartMonth;
     const isBeforeEnd = !selectedEndMonth || entry.month <= selectedEndMonth;
     return isAfterStart && isBeforeEnd;
   });
 
-  // sentimentMomentum is the change in positive-vs-negative gap compared to
-  // the prior month. The first point gets 0 because there is no baseline.
+  // --- MOMENTUM CALCULATIONS ---
+  // filteredTrendData: adds a 'sentimentMomentum' field to each row in our visual set.
+  // sentimentMomentum is the difference between this month's netSentiment and the previous month's netSentiment.
+  // It answers: "Are reviews improving or getting worse compared to last month?"
+  // Note: the first month in the filtered set has no baseline, so it defaults to 0.
   const filteredTrendData = filteredBaseData.map((entry, index) => {
     const previousNet = index > 0 ? filteredBaseData[index - 1].netSentiment : null;
     return {
@@ -156,10 +195,13 @@ function TrendChart({ data }) {
     };
   });
 
+  // --- FILTER CHANGE HANDLERS ---
+  // handleStartMonthChange: updates the start month boundary.
+  // It guards the input: if the user selects a start month that is chronologically after the current
+  // end month, it automatically nudges the end month forward to match the start month, preventing a broken filter state.
   const handleStartMonthChange = (event) => {
     const nextStart = event.target.value;
     setStartMonth(nextStart);
-    // Guard: prevent the start month from going past the end month.
     if (selectedEndMonth && nextStart > selectedEndMonth) {
       setEndMonth(nextStart);
     }
@@ -208,20 +250,34 @@ function TrendChart({ data }) {
     );
   }
 
-  // Pre-compute the summary stats used by the top stat cards and the guide modal.
-  // These run only when filteredTrendData changes (memoized implicitly by const
-  // declarations inside render; useMemo would be needed for large arrays).
+  // --- HIGHLIGHT STATISTICS PRE-COMPUTATION ---
+  // We extract summary statistics from our active filtered series to populate the four top highlight cards.
+  // Statically computed during rendering. In huge datasets, these could be memoized, but for standard
+  // user dashboards, this inline computation is lightweight and ensures data stays perfectly in sync.
+
+  // latest: gets the last month in our filtered array (the most recent period).
   const latest = filteredTrendData[filteredTrendData.length - 1];
+
+  // previous: gets the second-to-last month to calculate month-over-month trajectory changes.
   const previous = filteredTrendData.length > 1 ? filteredTrendData[filteredTrendData.length - 2] : null;
+
+  // strongestMonth: finds the month with the highest netSentiment (the biggest positive-minus-negative gap).
   const strongestMonth = filteredTrendData.reduce((best, current) => (current.netSentiment > best.netSentiment ? current : best), filteredTrendData[0]);
+
+  // highestNegativeMonth: finds the month with the highest negative review percentage (peak complaints rate).
   const highestNegativeMonth = filteredTrendData.reduce((worst, current) => (current.negativeRate > worst.negativeRate ? current : worst), filteredTrendData[0]);
+
+  // peakVolumeMonth: finds the month with the maximum review count (highest density of customer feedback).
   const peakVolumeMonth = filteredTrendData.reduce((peak, current) => (current.total > peak.total ? current : peak), filteredTrendData[0]);
 
   const isDefaultRange = selectedStartMonth === defaultStartMonth && selectedEndMonth === defaultEndMonth;
   const visibleMonthsLabel = `${formatMonthLabel(selectedStartMonth)} - ${formatMonthLabel(selectedEndMonth)}`;
 
-  // Determine the sentiment direction by comparing the latest month's net
-  // sentiment with the one before it. Used in the stat card and guide text.
+  // Determine the trend trajectory by comparing the latest month's net sentiment with the prior month.
+  // - "improving": net sentiment is higher than the previous month's.
+  // - "softening": net sentiment has dropped.
+  // - "steady": net sentiment remains identical.
+  // - "baseline": if there is no previous month available for comparison.
   const latestDirection = previous
     ? latest.netSentiment > (previous.netSentiment || 0)
       ? 'improving'
@@ -230,95 +286,96 @@ function TrendChart({ data }) {
       : 'steady'
     : 'baseline';
 
-  // Every trend info button resolves to one of these guide entries.
-  // The descriptions are generated from the current filtered trend data, so
-  // the modal explains the exact months and values the user is looking at.
+  // --- DYNAMIC TUTORIAL / GUIDE SECTIONS ---
+  // Every "Explain" button in the dashboard links to one of these sections.
+  // The descriptions are generated dynamically using values from the active dataset.
+  // This helps beginners interpret the charts, explaining the exact months and scores they see.
   const guideSections = {
     latest: {
       title: 'Latest Month',
-      description: 'This card summarizes the most recent month available in the dataset.',
+      description: 'This card summarizes customer feedback from the most recent month recorded in the dataset.',
       items: [
         {
           label: 'Current Month',
           value: latest.month,
-          description: `Current result: ${latest.month} is the latest time bucket represented in the dataset.`,
+          description: `Current result: ${latest.month} is the latest month represented in your current filter view.`,
         },
         {
           label: 'Positive vs Negative',
           value: `${latest.netSentiment > 0 ? '+' : ''}${latest.netSentiment} pts`,
           description: latest.netSentiment >= 0
-            ? 'Current result: positive reviews outweigh negative reviews in the latest month.'
-            : 'Current result: negative reviews outweigh positive reviews in the latest month.',
+            ? 'Current result: positive reviews exceed negative reviews in the latest month.'
+            : 'Current result: negative reviews exceed positive reviews in the latest month, indicating high complaints.',
         },
         {
           label: 'Change From Previous Month',
           value: previous ? `${latestDirection} (${latest.sentimentMomentum > 0 ? '+' : ''}${latest.sentimentMomentum} pts)` : 'No prior month',
           description: previous
-            ? 'This compares the latest month with the month immediately before it.'
-            : 'A previous month is required before the dashboard can calculate month-to-month change.',
+            ? 'This shows the month-over-month shift in net sentiment.'
+            : 'We need at least two months of trend data to compute a trajectory change.',
         },
       ],
     },
     strongest: {
       title: 'Best Month',
-      description: 'This card highlights the month where positive reviews most clearly outweighed negative reviews.',
+      description: 'Highlights the month where customer satisfaction was highest (widest positive-vs-negative sentiment gap).',
       items: [
         {
           label: 'Best Month',
           value: strongestMonth.month,
-          description: `Current result: ${strongestMonth.month} has the largest positive gap in the current time series.`,
+          description: `Current result: ${strongestMonth.month} is the highest-rated month in this series.`,
         },
         {
           label: 'Positive vs Negative',
           value: `${strongestMonth.netSentiment > 0 ? '+' : ''}${strongestMonth.netSentiment} pts`,
-          description: 'This is the difference between positive review share and negative review share.',
+          description: 'This is the gap between positive percentage and negative percentage.',
         },
         {
           label: 'Positive Share',
           value: `${strongestMonth.positiveRate}%`,
-          description: 'This is the share of reviews in that month that were classified as positive.',
+          description: 'This is the percentage of reviews that were classified as positive during this peak month.',
         },
       ],
     },
     risk: {
       title: 'Month With Most Complaints',
-      description: 'This card points to the month with the highest percentage of negative reviews.',
+      description: 'Identifies the month where the percentage of negative reviews reached its highest level.',
       items: [
         {
           label: 'Complaint Month',
           value: highestNegativeMonth.month,
-          description: `Current result: ${highestNegativeMonth.month} has the largest negative share in the series.`,
+          description: `Current result: ${highestNegativeMonth.month} contains the highest ratio of complaints in this series.`,
         },
         {
           label: 'Negative Share',
           value: `${highestNegativeMonth.negativeRate}%`,
-          description: 'This tells beginners what portion of that month’s reviews were classified as negative.',
+          description: 'What portion of reviews in that month were classified as negative.',
         },
         {
           label: 'Why It Matters',
-          value: 'Potential issue spike',
-          description: 'A sudden peak in negative share can signal a release issue, shipping problem, service interruption, or other temporary pain point.',
+          value: 'Potential quality spikes',
+          description: 'A sudden peak in negative reviews helps you identify shipping delays, defective batches, or website issues.',
         },
       ],
     },
     peak: {
       title: 'Month With Most Reviews',
-      description: 'This card shows when the dataset had the most review activity.',
+      description: 'Highlights the month with the highest volume of review activity.',
       items: [
         {
           label: 'Most Reviews',
           value: peakVolumeMonth.month,
-          description: `Current result: ${peakVolumeMonth.month} contains the highest number of reviews in the time series.`,
+          description: `Current result: ${peakVolumeMonth.month} was the busiest month for reviews in the time series.`,
         },
         {
           label: 'Review Count',
           value: peakVolumeMonth.total.toLocaleString(),
-          description: 'This is the total number of reviews recorded in that month.',
+          description: 'The absolute number of reviews submitted in that month.',
         },
         {
           label: 'Why It Matters',
           value: 'Traffic context',
-          description: 'Volume spikes help users separate a true sentiment change from a period that simply had more activity and therefore more visible feedback.',
+          description: 'High volume gives you stronger statistical confidence in the sentiment metrics than a month with only a few reviews.',
         },
       ],
     },
@@ -329,17 +386,17 @@ function TrendChart({ data }) {
         {
           label: 'How To Read It',
           value: 'Stacked counts by month',
-          description: 'Each colored area shows how many reviews of that sentiment occurred in the month. The total stacked height equals total monthly review volume.',
+          description: 'The height of each color band represents review counts. The total height of the stack equals total reviews that month.',
         },
         {
           label: 'Current End Point',
           value: `${latest.month}: ${latest.total.toLocaleString()} reviews`,
-          description: 'This tells users what the trend line ends on in the latest month of data.',
+          description: 'This represents the total review counts in the most recent month.',
         },
         {
           label: 'Why It Matters',
-          value: 'Absolute volume',
-          description: 'This chart is useful when users want to see actual counts instead of percentages, especially during volume spikes.',
+          value: 'Absolute volume tracking',
+          description: 'Ideal for tracking raw growth in review activity, allowing you to see if sentiment swings coincide with product sales spikes.',
         },
       ],
     },
@@ -350,59 +407,59 @@ function TrendChart({ data }) {
         {
           label: 'How To Read It',
           value: 'Lines show monthly percentage',
-          description: 'Each line shows what percentage of that month’s reviews belonged to one sentiment class.',
+          description: 'Three lines trace positive %, negative %, and neutral % across months, normalizing variations in monthly review volume.',
         },
         {
           label: 'Latest Share Mix',
           value: `${latest.positiveRate}% / ${latest.neutralRate}% / ${latest.negativeRate}%`,
-          description: 'Read these in order as positive, neutral, and negative share in the latest month.',
+          description: 'Latest percentages shown as: Positive / Neutral / Negative.',
         },
         {
           label: 'Why It Matters',
           value: 'Normalized comparison',
-          description: 'Percentages let beginners compare months fairly even when the number of reviews changes from month to month.',
+          description: 'Allows you to compare customer satisfaction levels across months, even if one month has 10 reviews and another has 1,000.',
         },
       ],
     },
     volume: {
       title: 'Review Volume by Month',
-      description: 'This chart isolates total review count by month so users can see seasonality and activity spikes.',
+      description: 'Isolates total review count by month to highlight purchase seasonality or promotion impacts.',
       items: [
         {
           label: 'Peak Month',
           value: `${peakVolumeMonth.month} (${peakVolumeMonth.total.toLocaleString()})`,
-          description: 'Current result: this is the busiest month in the time series.',
+          description: 'The month that saw the highest overall review activity.',
         },
         {
           label: 'Latest Volume',
           value: latest.total.toLocaleString(),
-          description: `Current result: ${latest.total.toLocaleString()} reviews were recorded in the latest month.`,
+          description: `Reviews recorded during the most recent month.`,
         },
         {
           label: 'Why It Matters',
           value: 'Activity baseline',
-          description: 'Volume helps explain whether a visible sentiment swing came from a real sentiment shift or just a surge in review traffic.',
+          description: 'Helps determine whether a sentiment swing represents a widespread issue or just a minor fluctuation from a quiet month.',
         },
       ],
     },
     net: {
       title: 'Good Reviews Minus Bad Reviews',
-      description: 'This chart compares the good-review share and bad-review share for each month side by side.',
+      description: 'This chart compares the monthly positive-review share and negative-review share side by side.',
       items: [
         {
           label: 'How To Read It',
           value: 'Green bar vs red bar',
-          description: 'The green bar is the monthly positive-review share. The red bar is the monthly negative-review share. A bigger green bar means good reviews are ahead.',
+          description: 'Green bars show positive review share. Red bars show negative review share. When green is taller than red, good feedback dominates.',
         },
         {
           label: 'Best Month',
           value: `${strongestMonth.month} (${strongestMonth.positiveRate}% positive)`,
-          description: 'This is the month where positive reviews most clearly outpaced negative reviews.',
+          description: 'The month where positive reviews outpaced negative reviews by the widest margin.',
         },
         {
           label: 'Latest Month',
           value: `${latest.positiveRate}% positive / ${latest.negativeRate}% negative`,
-          description: 'This shows the current good-review and bad-review shares without requiring users to interpret a calculated score.',
+          description: 'Shows the latest good-vs-bad review share side by side.',
         },
       ],
     },
@@ -412,6 +469,11 @@ function TrendChart({ data }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 1: TREND FILTERS
+          Lets users select product specific trend lists or slice by start/end month.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -494,6 +556,10 @@ function TrendChart({ data }) {
         </div>
       </div>
 
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 2: TREND INSIGHT HIGHLIGHT CARDS
+          Displays four summaries: latest month, best month, most complaints, most reviews.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="trend-insight-grid">
         <TrendInsightCard
           title="Latest Month"
@@ -541,7 +607,13 @@ function TrendChart({ data }) {
         />
       </div>
 
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 3: FOUR KEY RECHARTS VISUALIZATIONS
+          Split into a 2x2 responsive CSS grid layout.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="grid grid-2">
+
+        {/* CHART 1: Monthly Review Counts (Stacked AreaChart of absolute volumes) */}
         <div className="card">
           <CardHeaderWithGuide
             title="Monthly Review Counts"
@@ -566,6 +638,7 @@ function TrendChart({ data }) {
                 <YAxis tick={axisStyle} />
                 <Tooltip contentStyle={tooltipStyle} labelFormatter={(label) => `Period: ${label}`} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
+                {/* positive, neutral, negative counts are stacked together using the same stackId. */}
                 <Area type="monotone" dataKey="positive" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.5} name="Positive" />
                 <Area type="monotone" dataKey="neutral" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.45} name="Neutral" />
                 <Area type="monotone" dataKey="negative" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.45} name="Negative" />
@@ -574,6 +647,7 @@ function TrendChart({ data }) {
           </div>
         </div>
 
+        {/* CHART 2: Monthly Good, Neutral, and Bad Share (Normalized LineChart of rates) */}
         <div className="card">
           <CardHeaderWithGuide
             title="Monthly Good, Neutral, and Bad Share"
@@ -605,6 +679,7 @@ function TrendChart({ data }) {
           </div>
         </div>
 
+        {/* CHART 3: Review Volume by Month (AreaChart showing total feedback density) */}
         <div className="card">
           <CardHeaderWithGuide
             title="Review Volume by Month"
@@ -633,6 +708,7 @@ function TrendChart({ data }) {
           </div>
         </div>
 
+        {/* CHART 4: Good Reviews Minus Bad Reviews (BarChart comparing positive and negative rates side-by-side) */}
         <div className="card">
           <CardHeaderWithGuide
             title="Good Reviews Minus Bad Reviews"
@@ -667,6 +743,7 @@ function TrendChart({ data }) {
         </div>
       </div>
 
+      {/* InfoGuideModal: interactive overlay triggered by GuideButtons */}
       <InfoGuideModal
         activeGuide={activeGuide}
         onClose={() => setActiveGuideKey(null)}
@@ -676,6 +753,12 @@ function TrendChart({ data }) {
   );
 }
 
+/**
+ * TrendInsightCard Component
+ *
+ * Child component that renders a single summary statistic card.
+ * Integrates with the visual guide modal via a GuideButton.
+ */
 function TrendInsightCard({
   title,
   value,

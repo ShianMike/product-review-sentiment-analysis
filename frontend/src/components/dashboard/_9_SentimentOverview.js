@@ -1,16 +1,16 @@
 // _9_SentimentOverview.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Renders the "Overview" tab of the dashboard.
-// This file does NOT call the backend. The parent (Dashboard/App) already
-// completed the analysis fetch and passes the full result as `data`.
+// Overview tab of the dashboard.
 //
-// Responsibilities:
-//   - Transform backend response fields into chart-ready shapes
-//   - Display sentiment counts, a pie chart, a ratings bar chart or fallback,
-//     a product-level comparison table, and a top-aspects/keywords preview
-//   - Manage the open/close state of the InfoGuideModal
-//   - Allow the user to focus on a single product via a dropdown filter
-// ─────────────────────────────────────────────────────────────────────────────
+// This file only displays the finished backend result.
+// It does not upload files and it does not run the model.
+//
+// What this tab shows:
+// - Positive, neutral, and negative summary cards
+// - Product-level sentiment and product filter
+// - Overall sentiment distribution pie chart
+// - Rating distribution chart, if ratings exist
+// - Top aspects and top keywords
+// - Info buttons that explain each overview section
 import React, { useState } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -26,14 +26,15 @@ const COLORS = {
 };
 
 function truncateId(text, max = 50) {
-  // Shorten long product IDs so they fit in dropdowns and cards.
+  // Cut long product IDs short so they fit inside dropdowns and cards.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
 
 function productDistribution(product) {
-  // Normalize one product row into the same positive/neutral/negative shape as
-  // the overall sentiment distribution.
+  // Take one product row and reshape it into the same positive / neutral /
+  // negative format used by the overall sentiment distribution. This way the
+  // pie chart and cards can show one product without changing their code.
   if (!product) return null;
   if (product.sentiment_summary) return product.sentiment_summary;
 
@@ -55,7 +56,8 @@ function productDistribution(product) {
 }
 
 function defaultProductInsight(product) {
-  // Build a plain-English insight when the backend did not provide one.
+  // Write a short, easy-to-read sentence about the product when the backend
+  // did not send one. This is shown under the product summary card.
   if (!product) return '';
   const negativePct = product.negative_pct || 0;
   const positivePct = product.positive_pct || 0;
@@ -83,25 +85,26 @@ const tooltipStyle = {
 };
 
 /**
- * Overview section for the dashboard.
+ * Overview section of the dashboard.
  *
- * This component does not fetch data from the backend. It receives the completed
- * analysis payload from Dashboard/App and converts a few response objects into
- * shapes that Recharts can render directly.
+ * This component does not run the model and does not call the backend. It just
+ * receives the finished result from Dashboard/App and turns parts of it into
+ * the simple shapes that the chart library (Recharts) needs.
  *
- * Main transformations:
- * - sentiment_distribution -> pieData
- * - rating_distribution -> ratingData
- * - aspect_summary -> topAspects preview cards
- * - theme_summary/product_summary -> supporting insight cards
+ * What gets reshaped here:
+ * - sentiment_distribution -> pieData (for the pie chart)
+ * - rating_distribution    -> ratingData (for the rating bar chart)
+ * - aspect_summary         -> topAspects (for the Top Aspects card)
+ * - theme_summary          -> topKeywords (for the Top Keywords card)
+ * - product_summary        -> product table + product filter dropdown
  *
- * This component does not recompute sentiment. It only visualizes the model
- * outputs and product summaries already prepared by the backend pipeline.
+ * It does not calculate sentiment again. It only shows what the backend
+ * already produced.
  */
 function SentimentOverview({ data }) {
   const [activeGuideKey, setActiveGuideKey] = useState(null);
-  // selectedProductFocus holds the product_id string chosen in the dropdown,
-  // or 'all' meaning no filter is active.
+  // Holds the product_id picked in the dropdown. 'all' means no filter,
+  // so the Overview shows numbers for the whole dataset.
   const [selectedProductFocus, setSelectedProductFocus] = useState('all');
   const {
     sentiment_distribution,
@@ -113,12 +116,13 @@ function SentimentOverview({ data }) {
   } = data;
 
   const allProducts = product_summary?.top_products || [];
-  // Guard: only include the product_id in the valid set so a stale dropdown
-  // value from a previous upload cannot accidentally stay active.
+  // Safety check: only allow product IDs that really exist in the current
+  // result. This stops an old dropdown choice (from a previous upload) from
+  // staying selected when a new file is loaded.
   const allProductIds = allProducts.map((product) => product.product_id);
   const activeProductFocus = allProductIds.includes(selectedProductFocus) ? selectedProductFocus : 'all';
-  // When a product is focused, show only that one row; otherwise show up to
-  // the top 8 products to keep the table height reasonable.
+  // If one product is picked, show only that product in the table. If not,
+  // show the top 8 products so the table does not get too tall.
   const focusedProduct = activeProductFocus === 'all'
     ? null
     : allProducts.find((product) => product.product_id === activeProductFocus) || null;
@@ -139,17 +143,18 @@ function SentimentOverview({ data }) {
     null
   );
 
-  // Recharts pie charts prefer an array of objects, so convert the active
-  // sentiment buckets into a list with labels, values, and colors.
+  // Pie chart data. Recharts wants a list of objects, so we build one item per
+  // sentiment with a name, a count, and a color. Each item becomes one slice.
   const pieData = [
     { name: 'Positive', value: activeSentimentDistribution.positive.count, color: COLORS.positive },
     { name: 'Neutral', value: activeSentimentDistribution.neutral.count, color: COLORS.neutral },
     { name: 'Negative', value: activeSentimentDistribution.negative.count, color: COLORS.negative },
   ];
 
-  // Convert keyed rating counts like {"1": 12, "2": 5} into chart rows.
-  // If the uploaded file had no rating column, rating_distribution is null
-  // and the component falls back to a plain stats card instead of a bar chart.
+  // Rating bar chart data. The backend sends ratings as { "1": 12, "2": 5 ... }.
+  // We turn that into rows like { rating: "1★", count: 12 } for the bar chart.
+  // If the uploaded file had no rating column, rating_distribution is null and
+  // we show a small stats card instead of the bar chart.
   const ratingData = rating_distribution
     ? Object.entries(rating_distribution).map(([rating, count]) => ({
         rating: `${rating}★`,
@@ -157,22 +162,26 @@ function SentimentOverview({ data }) {
       }))
     : null;
 
-  // Sort aspects by total mentions descending and take the top 5 for the
-  // preview cards. The Aspects tab shows the full list.
+  // Top aspects preview. We sort the aspects by how many times they were
+  // mentioned (most first) and keep the top 5 for the card. The full list is
+  // shown in the Aspects tab.
   const topAspects = aspect_summary
     ? Object.entries(aspect_summary)
         .sort((a, b) => b[1].total_mentions - a[1].total_mentions)
         .slice(0, 5)
     : [];
 
+  // Top 8 keywords from the backend.
+  // Each item looks like ["word", score], where score means how important the
+  // word is in this review file.
   const topKeywords = theme_summary?.overall_keywords?.slice(0, 8) || [];
 
   const posNegRatio = activeSentimentDistribution.negative.count > 0
     ? (activeSentimentDistribution.positive.count / activeSentimentDistribution.negative.count).toFixed(1)
     : '∞';
 
-  // Find whichever sentiment bucket has the most reviews so the guide modal
-  // can name the "dominant sentiment" for this particular product or dataset.
+  // Pick the sentiment with the most reviews. The guide popup uses this to
+  // tell the user which sentiment is the biggest one for the current view.
   const dominantSentiment = pieData.reduce(
     (best, current) => (current.value > best.value ? current : best),
     pieData[0]
@@ -183,9 +192,9 @@ function SentimentOverview({ data }) {
     (theme_summary?.complaints_and_praises?.praises?.count || 0) +
     (theme_summary?.complaints_and_praises?.complaints?.count || 0);
 
-  // Each info button in this section maps to one entry in `guideSections`.
-  // The content is built from the current analysis payload, so the modal copy
-  // changes with the uploaded dataset instead of using hard-coded examples.
+  // Every "info" button in this section opens one entry from `guideSections`.
+  // The text inside is built from the current analysis result, so the popup
+  // always shows numbers from the file the user just uploaded.
   const guideSections = {
     positive: buildSentimentGuide({
       title: 'Positive Reviews',
@@ -415,13 +424,16 @@ function SentimentOverview({ data }) {
       : null,
   };
 
-  // Resolve the currently active guide object. If no button has been clicked
-  // yet (activeGuideKey is null), activeGuide will be null and the modal stays
-  // unmounted.
+  // Look up the guide entry for the button the user just clicked. If no
+  // button was clicked yet, activeGuideKey is null, so activeGuide is null
+  // and the popup stays closed.
   const activeGuide = activeGuideKey ? guideSections[activeGuideKey] : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Positive, Neutral, and Negative cards.
+          These cards show how many reviews belong to each sentiment.
+          If the user picks a product, the cards update for that product only. */}
       <div className="grid grid-3">
         <SentimentCard
           label="Positive"
@@ -470,6 +482,9 @@ function SentimentOverview({ data }) {
             actions={<span className="count-badge">{product_summary.total_products}</span>}
           />
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Product-Level Sentiment.
+                This block compares products using review count, positive percent,
+                neutral percent, negative percent, and average rating. */}
             <div className="grid grid-3">
               <MiniStat
                 label={focusedProduct ? 'Product Reviews' : 'Products Tracked'}
@@ -496,6 +511,10 @@ function SentimentOverview({ data }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                 <div className="section-label" style={{ marginBottom: 0 }}>Product Filter</div>
                 <div className="trend-select-wrap" style={{ minWidth: 220 }}>
+                  {/* Product Filter.
+                      The dropdown changes `selectedProductFocus`.
+                      After that, the cards, pie chart, and product table show
+                      the selected product instead of all products. */}
                   <select
                     className="input trend-select"
                     value={activeProductFocus}
@@ -515,6 +534,8 @@ function SentimentOverview({ data }) {
             )}
 
             <div style={{ overflowX: 'auto' }}>
+              {/* Product table.
+                  Each row comes from the backend product summary. */}
               <table className="data-table">
                 <thead>
                   <tr>
@@ -560,6 +581,9 @@ function SentimentOverview({ data }) {
             dialogId="overview-guide"
           />
           <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {/* Overall Sentiment Distribution.
+                The pie chart uses positive, neutral, and negative counts.
+                If a product is selected, it becomes a product-only pie chart. */}
             <ResponsiveContainer width="60%" height={240}>
               <PieChart>
                 <Pie
@@ -624,6 +648,8 @@ function SentimentOverview({ data }) {
         </div>
 
         {focusedProduct ? (
+          // Product Quality Summary.
+          // This replaces the rating chart when the user filters to one product.
           <div className="card">
             <CardHeaderWithGuide
               title="Product Quality Summary"
@@ -647,6 +673,8 @@ function SentimentOverview({ data }) {
             </div>
           </div>
         ) : ratingData ? (
+          // Rating Distribution.
+          // This chart appears only when the uploaded file has a rating column.
           <div className="card">
             <CardHeaderWithGuide
               title="Rating Distribution"
@@ -680,6 +708,8 @@ function SentimentOverview({ data }) {
             </div>
           </div>
         ) : (
+          // Fallback when there is no rating column.
+          // The overview still shows useful sentiment totals.
           <div className="card">
             <CardHeaderWithGuide
               title="Sentiment Stats"
@@ -723,9 +753,9 @@ function SentimentOverview({ data }) {
                 actions={<span className="count-badge">{Object.keys(aspect_summary).length}</span>}
               />
               <div className="card-body" style={{ padding: 0 }}>
-                  {/* Each aspect row shows a mini stacked bar (green/yellow/red) whose
-                      segment widths are the per-sentiment percentage of that aspect's
-                      total mentions, computed inline here. */}
+                  {/* Each aspect row shows a small stacked bar in green / yellow / red.
+                      The widths come from how many positive, neutral, and negative
+                      mentions that aspect has, turned into percentages right here. */}
                   {topAspects.map(([aspect, stats], i) => {
                     const total = stats.positive_count + stats.neutral_count + stats.negative_count;
                     const posW = total > 0 ? (stats.positive_count / total) * 100 : 0;
@@ -773,6 +803,9 @@ function SentimentOverview({ data }) {
                 dialogId="overview-guide"
               />
               <div className="card-body">
+                {/* Top Keywords.
+                    These are the highest-ranked words returned by the backend.
+                    The small number is the keyword score. */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {topKeywords.map(([word, score], i) => (
                     <span
@@ -814,6 +847,7 @@ function SentimentOverview({ data }) {
               </div>
             </div>
           ) : topAspects.length > 0 && ratingData && (
+            // Fallback card when aspects exist but no top keywords were returned.
             <div className="card">
               <CardHeaderWithGuide
                 title="Quick Stats"
@@ -873,6 +907,8 @@ function SentimentCard({
   onOpenGuide,
   dialogId,
 }) {
+  // Reusable card for Positive, Neutral, and Negative.
+  // `percentage` controls the big percent text and the small progress bar.
   const colorMap = {
     green: { accent: 'var(--green)', border: 'var(--green)' },
     yellow: { accent: 'var(--yellow)', border: 'var(--yellow)' },
@@ -913,8 +949,8 @@ function SentimentCard({
 }
 
 function buildSentimentGuide({ title, label, count, percentage, totalReviews, scopeLabel, interpretation }) {
-  // Helper used by the Positive / Neutral / Negative cards so those three
-  // buttons share the same explanation structure with different live values.
+  // Small helper used by the Positive, Neutral, and Negative cards. It builds
+  // the same kind of guide popup for all three, just with different numbers.
   return {
     title,
     description: `This card summarizes how many reviews were classified as ${label} for ${scopeLabel || 'the current selection'}.`,

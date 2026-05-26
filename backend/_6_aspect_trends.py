@@ -1,13 +1,8 @@
 """
 [Backend Step 6 of 13] Aspect-Level Monthly Trends
 
-This file builds month-by-month trends for detected aspects.
-
-Presentation flow:
-- Step 1: Check whether the upload has usable dates.
-- Step 2: Group aspect mentions by month.
-- Step 3: Count positive, neutral, and negative mentions per aspect each month.
-- Step 4: Return chart-ready trend rows for the most discussed aspects.
+Groups aspect mentions chronologically by calendar month to trace how customer opinion
+on specific topics rises, falls, or changes over time.
 """
 
 from collections import defaultdict
@@ -17,35 +12,23 @@ import pandas as pd
 
 def build_aspect_trends(processed_df, aspect_results, limit=8):
     """
-    Build aspect sentiment trends grouped by calendar month.
+    Groups aspect mention counts and sentiment splits by calendar month for time-series charting.
 
-    For each top-mentioned aspect, the function creates a month-by-month list
-    with mention counts and sentiment percentages. The dashboard uses this for
-    the "Selected Aspect Trend Over Time" chart.
-
-    Parameters:
-    - processed_df  : normalized DataFrame containing an optional `date` column
-    - aspect_results: list of per-review aspect-sentiment dicts produced by ABSA;
-                      index-aligned with processed_df rows
-    - limit         : maximum number of aspects to include, ranked by total
-                      mention volume so only the most-discussed are charted
-
-    Returns:
-    - A dict with keys 'aspect_ids', 'aspects', 'total_aspects_with_trends',
-      or None if no date column is present or no trend data can be built.
+    For each top aspect, compiles a chronological list of data points containing total mentions,
+    positive/neutral/negative counts, and percentage shares for each month.
     """
-    # Without dates we cannot build a time-series, so skip gracefully.
+    # Skips calculation if there is no date column, as a time-series cannot be constructed.
     if 'date' not in processed_df.columns:
         return None
 
     if not isinstance(aspect_results, list) or not aspect_results:
         return None
 
-    # Coerce to datetime; invalid or missing dates become NaT and are skipped below.
+    # Parses the date column into pandas datetime values to standardise format and support sorting.
     monthly_dates = pd.to_datetime(processed_df['date'], errors='coerce')
 
-    # Three-level structure: aspect -> 'YYYY-MM' month key -> sentiment counters.
-    # defaultdict avoids boilerplate init checks during the accumulation loop.
+    # Nested counts structure: aspect -> month ('YYYY-MM') -> sentiment distribution statistics.
+    # defaultdict handles initialization checks automatically.
     counts = defaultdict(
         lambda: defaultdict(
             lambda: {
@@ -56,19 +39,16 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
             }
         )
     )
-    # Tracks cross-month totals so we can rank aspects by overall popularity.
+    # Track total mentions of each aspect across the entire dataset to rank their popularity.
     aspect_totals = defaultdict(int)
 
-    # --- Accumulation loop -------------------------------------------------
-    # Iterate over reviews row-by-row using zip so date and aspect data stay
-    # index-aligned even if the dataframe index was reset.
+    # Accumulates monthly counts by iterating over dates and aspect detection results in parallel.
     for date_value, review_aspects in zip(monthly_dates, aspect_results):
         # Skip rows where the date could not be parsed or no aspects were found.
         if pd.isna(date_value) or not isinstance(review_aspects, dict) or not review_aspects:
             continue
 
-        # Convert to 'YYYY-MM' string; this groups all reviews in the same
-        # calendar month into a single chart data-point.
+        # Formats the datetime object into a 'YYYY-MM' key to group reviews by calendar month.
         month = date_value.to_period('M').strftime('%Y-%m')
 
         for raw_aspect, sentiment_info in review_aspects.items():
@@ -76,7 +56,7 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
             if not aspect:
                 continue
 
-            # Default to 'neutral' for any unrecognized or missing label.
+            # Coerces missing or unrecognized sentiment labels to 'neutral' for safety.
             label = (sentiment_info or {}).get('label', 'neutral')
             if label not in {'positive', 'neutral', 'negative'}:
                 label = 'neutral'
@@ -90,12 +70,12 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
     if not aspect_totals:
         return None
 
-    # Keep only the top-N aspects by total mention count across all months.
+    # Identifies the top aspects with the highest cross-month mention counts to limit data density.
     top_aspects = sorted(
         aspect_totals.items(), key=lambda item: item[1], reverse=True
     )[: max(1, int(limit))]
 
-    # --- Build the per-aspect monthly time-series -------------------------
+    # Builds the final monthly time-series dataset for each top aspect, sorting month keys chronologically.
     trend_payload = {}
     for aspect, _ in top_aspects:
         month_map = counts.get(aspect, {})
@@ -108,7 +88,7 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
             if total <= 0:
                 continue
 
-            # Convert raw counts to percentages for chart y-axis display.
+            # Converts raw count values to percentage shares for y-axis representation in Recharts.
             positive_pct = round(point['positive_count'] / total * 100, 1)
             neutral_pct  = round(point['neutral_count']  / total * 100, 1)
             negative_pct = round(point['negative_count'] / total * 100, 1)
@@ -123,8 +103,8 @@ def build_aspect_trends(processed_df, aspect_results, limit=8):
                     'positive_pct': positive_pct,
                     'neutral_pct':  neutral_pct,
                     'negative_pct': negative_pct,
-                    # Net sentiment = positive% - negative%; positive means
-                    # customer opinion improved that month.
+                    # Computes Net Sentiment (Positive% - Negative%) to summarize the overall direction of feedback.
+                    # Positive net scores indicate favorable customer opinion during that month.
                     'net_sentiment': round(positive_pct - negative_pct, 1),
                 }
             )

@@ -1,30 +1,29 @@
 // _11_ThemeSummary.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Renders the "Themes" tab of the dashboard.
-// Theme extraction is a text-mining step in the backend pipeline that finds
-// recurring words and phrases without needing labelled categories. The results
-// are passed in via `data.theme_summary`.
+// Themes tab of the dashboard.
 //
-// What this component renders:
-//   - Praise / complaint counts and the ratio between them
-//   - Separate praise and complaint word clouds scaled by term frequency
-//   - A ranked TF-IDF keyword list with inline score bars
-//   - Sentiment-bucketed keyword and phrase groups with a quick-filter
-//   - A product filter that triggers a backend fetch for product-scoped themes
-// ─────────────────────────────────────────────────────────────────────────────
+// This file only displays the theme extraction and keyword ranking results.
+// It does not run TF-IDF or count vectorization in the browser.
+//
+// What this tab shows:
+// - Praise, complaint, and total extracted keyword counts
+// - Top praises and top complaints lists (keywords & common phrases)
+// - Praise and complaint word clouds
+// - Stand-out keywords list ranked by TF-IDF scores
+// - Keywords grouped by sentiment (positive, neutral, negative)
 import React, { useState, useCallback } from 'react';
 import { ThumbsUp, ThumbsDown, Hash, MessageCircle, Sparkles, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
 import { GuideButton, CardHeaderWithGuide, InfoGuideModal } from './_8_DashboardGuide';
 import { getProductAnalysis } from '../../_1_api';
 
 function truncateId(text, max = 50) {
-  // Keep long product IDs from stretching the layout.
+  // Truncates long product IDs to keep the dropdown menu and card layout clean and aligned.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '…';
 }
 
 function keywordsToWordCloud(keywords = []) {
-  // Convert TF-IDF keyword tuples into the {text, value} shape used by clouds.
+  // Converts TF-IDF keyword score tuples from the backend into a {text, value} structure,
+  // scaling the scores into integers to drive the size of the word cloud tokens on the UI.
   return keywords.map(([text, score]) => ({
     text,
     value: Math.max(1, Math.round((Number(score) || 0) * 1000)),
@@ -32,15 +31,11 @@ function keywordsToWordCloud(keywords = []) {
 }
 
 /**
- * ThemeSummary renders the non-chart text analytics section of the dashboard.
+ * Themes section of the dashboard.
  *
- * Instead of calling the backend itself, it consumes the already-fetched
- * `theme_summary` object prepared during the analysis pipeline. That payload
- * contains ranked keywords, phrase groupings, complaint/praise buckets, and
- * word-frequency data.
- *
- * In simple terms, this component shows the repeated words and phrases behind
- * positive and negative reviews.
+ * This component does not extract themes or compute keyword scores.
+ * It reads the theme_summary prepared by the backend and reshapes it
+ * to render metrics, word lists, and word clouds.
  */
 function ThemeSummary({ data }) {
   const [selectedProduct, setSelectedProduct] = useState('all');
@@ -49,7 +44,7 @@ function ThemeSummary({ data }) {
   const [selectedSentiment, setSelectedSentiment] = useState('all');
   const [activeGuideKey, setActiveGuideKey] = useState(null);
 
-  // Product list comes from the product summary computed during the main analysis.
+  // Product list extracted from the backend's product summary.
   const allProducts = data.product_summary?.top_products || [];
   const hasProducts = allProducts.length > 1 && Boolean(data.export_file);
 
@@ -72,9 +67,8 @@ function ThemeSummary({ data }) {
     }
   }, [data.export_file]);
 
-  // Use product-filtered theme data when a product is selected.
-  // The `|| data.theme_summary` fallback ensures the component doesn't blank
-  // out while the product fetch is in-flight.
+  // If a product filter is active, display its product-specific theme summary. Otherwise,
+  // fall back to the main analysis summary so that the dashboard doesn't blank out during transitions.
   const theme_summary = (selectedProduct !== 'all' && productData?.theme_summary) || data.theme_summary;
 
   if (!theme_summary) {
@@ -88,10 +82,8 @@ function ThemeSummary({ data }) {
 
   const { overall_keywords, complaints_and_praises, word_clouds, themes_by_sentiment } = theme_summary;
 
-  // Convert backend summary counts into quick ratios for the stat cards.
-  // `totalSentiment` is only the polar (positive + negative) count; neutral
-  // reviews are excluded so the ratio shows the positive vs negative split
-  // without neutral diluting it.
+  // Aggregates praises and complaints counts, calculating their percentage shares relative
+  // to polar sentiment only (excluding neutral comments) for distinct stat card indicators.
   const praisesCount = complaints_and_praises?.praises?.count || 0;
   const complaintsCount = complaints_and_praises?.complaints?.count || 0;
   const totalSentiment = praisesCount + complaintsCount;
@@ -105,15 +97,13 @@ function ThemeSummary({ data }) {
   const complaintWordCloudData = word_clouds?.complaints || keywordsToWordCloud(complaints_and_praises?.complaints?.keywords);
   const largestPraiseWord = praiseWordCloudData?.[0];
   const largestComplaintWord = complaintWordCloudData?.[0];
-  // Filter the sentiment-specific theme groups client-side for instant switching
-  // between tabs without requesting new backend data.
+  // Filters the sentiment-specific keyword groups client-side. This allows instant tab-switching
+  // (Positive vs. Negative vs. Neutral keywords) without triggering extra backend requests.
   const visibleSentimentGroups = themes_by_sentiment
     ? Object.entries(themes_by_sentiment).filter(([sentiment]) => selectedSentiment === 'all' || sentiment === selectedSentiment)
     : [];
 
-  // Theme-section info buttons pull their modal copy from this object.
-  // Each entry combines fixed explanatory text with live keyword/theme counts
-  // so the guide reflects the currently loaded review dataset.
+  // Guide popups that display documentation tailored to the current results.
   const guideSections = {
     praises: {
       title: 'Praises',
@@ -338,6 +328,7 @@ function ThemeSummary({ data }) {
         </div>
       )}
 
+      {/* Metrics cards for praises, complaints, and overall keywords */}
       <div className="grid grid-3">
         <ThemeMetricCard
           guideKey="praises"
@@ -377,6 +368,7 @@ function ThemeSummary({ data }) {
         />
       </div>
 
+      {/* Praise and complaint detailed term panels */}
       <div className="grid grid-2">
         <div className="card" style={{ borderLeft: '3px solid var(--green)' }}>
           <CardHeaderWithGuide
@@ -441,6 +433,7 @@ function ThemeSummary({ data }) {
         </div>
       </div>
 
+      {/* Word cloud grids panel */}
       <div className="theme-summary-layout">
         <div className="card theme-word-cloud-card">
           <CardHeaderWithGuide
@@ -471,6 +464,7 @@ function ThemeSummary({ data }) {
           </div>
         </div>
 
+        {/* Ranked TF-IDF keywords list card */}
         <div className="card theme-keyword-card">
           <CardHeaderWithGuide
             title="Stand-Out Review Keywords"
@@ -483,8 +477,8 @@ function ThemeSummary({ data }) {
           <div className="theme-keyword-list">
             {overall_keywords?.slice(0, 12).map(([word, score], i) => {
               const maxScore = overall_keywords[0]?.[1] || 1;
-              // Express the keyword's score as a percentage of the highest score
-              // so the bar width visually represents relative importance.
+              // Normalizes the TF-IDF keyword score against the highest keyword score in the dataset,
+              // creating a relative percentage width for the horizontal indicators.
               const barWidth = (score / maxScore) * 100;
               return (
                 <div
@@ -515,6 +509,7 @@ function ThemeSummary({ data }) {
       </div>
 
       {themes_by_sentiment && (
+        /* Sentiment-bucketed keywords and phrases tab */
         <div className="card">
           <CardHeaderWithGuide
             title="Keywords by Sentiment"

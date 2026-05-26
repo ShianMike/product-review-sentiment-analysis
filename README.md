@@ -47,6 +47,8 @@ ReviewLens is a local web application for analyzing product-review datasets. It 
 
 ## Backend Setup
 
+Use Python 3.11 for local development and production. The deployment config pins Python `3.11.9`; newer prerelease/current Windows Python versions can force some data-science packages to build from source.
+
 From the repository root:
 
 ```powershell
@@ -157,6 +159,71 @@ Frontend production build:
 ```powershell
 npm run build --workspace frontend
 ```
+
+## Production Deployment
+
+The production-friendly split is:
+
+- **Frontend**: GitHub Pages, built from `frontend/` by `.github/workflows/deploy-frontend-pages.yml`.
+- **Backend**: Render Web Service, built from `backend/` by `render.yaml`.
+- **Validation**: GitHub Actions CI in `.github/workflows/ci.yml` runs backend tests, frontend tests, and a production-style frontend build.
+
+GitHub Pages can host only static files, so the Flask API must run on a backend host such as Render, Railway, Fly.io, or Cloud Run. This repo is configured for Render because it can deploy directly from the GitHub repository with the least setup.
+
+### 1. Deploy the Backend on Render
+
+1. Push this repository to GitHub.
+2. In Render, create a new **Blueprint** from the repository, or create a **Web Service** manually.
+3. If creating manually, use:
+   - Build command: `pip install -r backend/requirements.txt`
+   - Start command: `gunicorn --chdir backend _11_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 300`
+   - Health check path: `/api/health`
+4. Set the backend environment variables:
+
+```text
+PYTHON_VERSION=3.11.9
+FLASK_DEBUG=false
+CORS_ORIGINS=https://shianmike.github.io
+MAX_UPLOAD_MB=50
+MAX_UPLOAD_FILES=50
+MAX_EXPORT_FILES=200
+MAX_PROJECT_FILES=50
+STORAGE_MAX_AGE_HOURS=168
+```
+
+After the backend is live, verify:
+
+```text
+https://your-reviewlens-api.onrender.com/api/health
+```
+
+The response should include `"status":"ok"` and `"model_loaded":true`.
+
+### 2. Deploy the Frontend on GitHub Pages
+
+1. In the GitHub repository, open **Settings > Pages**.
+2. Set **Source** to **GitHub Actions**.
+3. Open **Settings > Secrets and variables > Actions > Variables**.
+4. Add a repository variable:
+
+```text
+REACT_APP_API_URL=https://your-reviewlens-api.onrender.com
+```
+
+5. Push to `master`, or manually run **Deploy frontend to GitHub Pages** from the Actions tab.
+
+The published frontend URL will be:
+
+```text
+https://shianmike.github.io/product-review-sentiment-analysis/
+```
+
+### Production Notes
+
+- The trained `backend/models/*.joblib` files are tracked so the production API can serve predictions without retraining during deploy.
+- Render free instances can spin down after inactivity, so the first request after idle time may be slower.
+- Uploads, exports, and saved projects are currently stored on the backend filesystem. On free ephemeral hosting, those files may not survive restarts. For long-term production use, move these folders to a persistent disk, object storage, or a database.
+- If a custom frontend domain is added later, also add that domain's origin to `CORS_ORIGINS`.
 
 ## Operational Notes
 

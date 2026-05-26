@@ -1,13 +1,9 @@
 """
 [Backend Step 5 of 13] Aspect-Level Complaint & Praise Extraction
 
-This file explains what people praise or complain about for each aspect.
-
-Presentation flow:
-- Step 1: Group reviews by detected aspect and aspect sentiment.
-- Step 2: Extract keywords from positive and negative aspect groups.
-- Step 3: Extract repeated two-word or three-word phrases from those groups.
-- Step 4: Sort aspects by mention count so the most discussed topics appear first.
+Groups reviews based on which aspects they mention and what sentiment label
+they received. Then, it extracts the most common keywords and phrases from those
+sentiment subgroups to power the praises/complaints cards on the dashboard.
 """
 
 from collections import defaultdict
@@ -17,12 +13,10 @@ from _7_themes import extract_keywords_tfidf, extract_frequent_phrases
 
 def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
     """
-    Build simple praise and complaint summaries for each detected aspect.
+    Groups reviews by aspect and sentiment, and extracts top keywords and common phrases.
 
-    Parameters:
-    - processed_texts: cleaned/normalized review texts aligned to aspect_results
-    - aspect_results: list of per-review aspect sentiment dicts
-    - top_n: keyword/phrase cap per bucket
+    This function separates review texts mentioning an aspect into positive (praises) and negative (complaints)
+    buckets, then performs TF-IDF keyword extraction and bigram/trigram count vectorization on each bucket.
     """
     if not processed_texts or not aspect_results:
         return {}
@@ -52,8 +46,8 @@ def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
         aspect_theme_summary[aspect] = {
             'total_mentions': len(positive_texts) + len(negative_texts) + len(neutral_texts),
             'neutral_mentions': len(neutral_texts),
-            # These buckets feed the aspect insight cards that summarize what users
-            # praise most and complain about most for each detected aspect.
+            # These sentiment-specific buckets contain the extracted terms that feed the
+            # aspect detail card, highlighting strengths (praises) and issue areas (complaints).
             'praises': {
                 'count': len(positive_texts),
                 'keywords': extract_keywords_tfidf(positive_texts, top_n=top_n),
@@ -66,7 +60,7 @@ def build_aspect_theme_summary(processed_texts, aspect_results, top_n=8):
             },
         }
 
-    # Sort by mention volume so the UI surfaces the most-discussed aspects first.
+    # Sorts the aspects so that the topics discussed most frequently are displayed first in the UI.
     return dict(
         sorted(
             aspect_theme_summary.items(),

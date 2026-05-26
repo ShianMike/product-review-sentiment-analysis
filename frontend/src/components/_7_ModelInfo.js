@@ -3,16 +3,37 @@ import { Info, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { getModelInfo, healthCheck } from '../_1_api';
 import { GuideButton, InfoGuideModal } from './dashboard/_8_DashboardGuide';
 
-// Model Info page:
-// shows backend health, model metrics, confusion matrix, classification report,
-// and model-comparison data for presentation.
+// ─────────────────────────────────────────────────────────────────────────────
+// [Model Info Tab] Performance summaries, system status, and model comparison.
+//
+// Background context and design choices:
+// 1. What does this component do?
+//    - Fetches and displays backend API health and sentiment model loading status.
+//    - Shows details of the active model configuration (type, training split, aspect targets).
+//    - Displays evaluation metrics (accuracy, precision, recall, F1) computed on test data.
+//    - Visualizes the confusion matrix and class-level classification report scores.
+//    - Renders a comparison table of alternative machine learning candidate classifiers.
+// 2. Data flow:
+//    - On load, executes concurrent GET requests to `/api/model-info` and `/api/health`.
+//    - Reshapes response arrays into confusion matrix values and candidates ranking grids.
+// 3. User assistance:
+//    - Features interactive help buttons that open details dialogs explaining each section.
+// ─────────────────────────────────────────────────────────────────────────────
 function ModelInfo() {
+  // --- STATE HOOKS ---
+  // modelData: holds performance metrics, candidate models, and comparison runs.
   const [modelData, setModelData] = useState(null);
+  // health: tracks server readiness and model loading status.
   const [health, setHealth] = useState(null);
+  // loading: manages initial component mount fetch states.
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // activeGuideKey: points to the currently active guide section to show in the overlay modal.
   const [activeGuideKey, setActiveGuideKey] = useState(null);
 
+  // --- API DATA INGESTION ---
+  // Queries both the model metrics endpoint and general health check in parallel
+  // to minimize loading delay on tab mount.
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -47,21 +68,29 @@ function ModelInfo() {
     );
   }
 
+  // --- DERIVED METRICS FOR GRAPHICAL DISPLAY ---
   const metrics = modelData?.evaluation_metrics;
   const report = metrics?.classification_report;
   const classLabels = Array.isArray(metrics?.class_labels) ? metrics.class_labels : [];
   const confusionMatrix = Array.isArray(metrics?.confusion_matrix) ? metrics.confusion_matrix : [];
+
+  // Total predictions represented inside the confusion matrix cells.
   const totalMatrixCount = confusionMatrix.reduce(
     (sum, row) => sum + (Array.isArray(row) ? row.reduce((rowSum, value) => rowSum + value, 0) : 0),
     0
   );
+
+  // Total correct predictions (summing the diagonal where True Label equals Predicted Label).
   const diagonalCount = confusionMatrix.reduce(
     (sum, row, index) => sum + (Array.isArray(row) ? row[index] || 0 : 0),
     0
   );
+
   const classOrder = classLabels.length ? classLabels.map(toTitleCase).join(', ') : 'Unavailable';
   const modelComparison = modelData?.model_comparison || {};
   const comparisonResults = Array.isArray(modelComparison.results) ? modelComparison.results : [];
+
+  // Compiles comparison candidates, checking model_comparison or falling back to general candidates list.
   const candidateModels = Array.isArray(modelComparison.models)
     ? modelComparison.models
     : Array.isArray(modelData?.candidate_models)
@@ -71,9 +100,10 @@ function ModelInfo() {
   const comparisonTrainSize = bestComparison?.train_size;
   const comparisonTestSize = bestComparison?.test_size;
 
-  // The Model Info page uses the same guide pattern as the dashboard:
-  // each section header button selects one key here, and the shared modal
-  // renders the matching explanatory cards using live backend metrics.
+  // --- INTERACTIVE GUIDE SECTIONS ---
+  // Maps visual cards to explanatory paragraphs. It dynamically incorporates
+  // live backend metrics (e.g. server status, sample counts, validation accuracies)
+  // so the instructions match the loaded dataset.
   const guideSections = {
     system: {
       title: 'System Status',
@@ -267,6 +297,8 @@ function ModelInfo() {
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* TAB HEADER AND SUBTITLE */}
       <div className="model-info-header">
         <Info size={20} style={{ color: 'var(--accent)' }} />
         <div>
@@ -277,6 +309,7 @@ function ModelInfo() {
         </div>
       </div>
 
+      {/* SYSTEM STATUS CARD: Displays API server and model readiness */}
       <div className="card">
         <CardSectionHeader title="System Status" guideKey="system" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
         <div className="card-body">
@@ -295,6 +328,7 @@ function ModelInfo() {
         </div>
       </div>
 
+      {/* MODEL DETAILS CARD: Summarizes model architectures, training dimensions, and aspects */}
       <div className="card">
         <CardSectionHeader title="Model Details" guideKey="details" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
         <div className="card-body">
@@ -307,6 +341,7 @@ function ModelInfo() {
         </div>
       </div>
 
+      {/* MODEL COMPARISON CARD: Tabulates ranked performance matrices for alternative candidate models */}
       {candidateModels.length > 0 && (
         <div className="card">
           <CardSectionHeader title="Model Comparison Test" guideKey="candidates" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
@@ -383,6 +418,7 @@ function ModelInfo() {
         </div>
       )}
 
+      {/* OVERALL PERFORMANCE CARD: Shows general summary metrics (accuracy, precision, recall, F1) */}
       {metrics && (
         <div className="card">
           <CardSectionHeader title="Overall Performance" guideKey="overall" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
@@ -397,6 +433,7 @@ function ModelInfo() {
         </div>
       )}
 
+      {/* PER-CLASS SCORE CARD: Displays classification metrics broken down by sentiment class */}
       {report && (
         <div className="card">
           <CardSectionHeader title="Per-Class Performance" guideKey="perClass" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
@@ -431,6 +468,7 @@ function ModelInfo() {
         </div>
       )}
 
+      {/* CONFUSION MATRIX CARD: Evaluates misclassification frequencies */}
       {confusionMatrix.length > 0 && classLabels.length > 0 && (
         <div className="card">
           <CardSectionHeader title="Confusion Matrix" guideKey="confusion" activeGuideKey={activeGuideKey} onOpenGuide={setActiveGuideKey} />
@@ -474,6 +512,7 @@ function ModelInfo() {
         </div>
       )}
 
+      {/* DYNAMIC HELP GUIDES OVERLAY DIALOG */}
       <InfoGuideModal
         activeGuide={activeGuide}
         onClose={() => setActiveGuideKey(null)}

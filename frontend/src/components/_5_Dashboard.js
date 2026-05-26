@@ -9,32 +9,24 @@ import { GuideButton, InfoGuideModal } from './dashboard/_8_DashboardGuide';
 import { getExportUrl, exportJson } from '../_1_api';
 
 /**
- * Dashboard is the main analysis workspace shown after a dataset is processed.
+ * Dashboard shows the finished analysis result after the upload process ends.
  *
- * It orchestrates:
- * 0) Consuming the already-fetched backend result passed in through `data`
- * 1) Top-level summary metadata (file, review count, sentiment badges)
- * 2) Export actions (CSV and JSON)
- * 3) Section navigation tabs (overview/aspects/themes/trends/reviews)
- * 4) Contextual in-product guidance via the guide modal
+ * Simple flow:
+ * Step 1: FileUpload sends the file to the backend and waits for the result.
+ * Step 2: App stores that finished result in React state.
+ * Step 3: Dashboard receives the result through `data`.
+ * Step 4: Dashboard shows the summary bar, export buttons, and selected tab.
  *
- * Important boundary:
- * - this component does not fetch analysis data itself
- * - FileUpload starts and polls the backend job
- * - App stores the completed result in React state
- * - Dashboard receives that result as a prop and fans it out to child views
+ * This file does not run the AI model and does not upload the file. It only
+ * displays the result that was already prepared by the backend.
  *
- * Because the backend response already contains chart-ready summaries, the
- * dashboard mostly maps response sections to visualization sections:
- * - sentiment_distribution -> overview badges + pie chart
- * - rating_distribution -> rating bar chart
- * - aspect_summary -> aspect bar/radar views
- * - aspect_theme_summary -> aspect praise/complaint cards
- * - aspect_trends -> aspect trend line chart
- * - theme_summary -> keyword cards, phrases, word cloud
- * - trends / product_trends -> time-based charts
- * - reviews -> capped review-table payload
-
+ * Main fields used by the Overview tab:
+ * - sentiment_distribution shows positive, neutral, and negative totals.
+ * - rating_distribution shows the star rating counts, if the file has ratings.
+ * - product_summary shows product-level sentiment and product filter options.
+ * - aspect_summary shows the most mentioned product topics.
+ * - theme_summary shows top keywords, praises, and complaints.
+ *
  * @param {{
  *  data: {
  *    filename: string,
@@ -56,22 +48,21 @@ import { getExportUrl, exportJson } from '../_1_api';
  * }} props
  */
 function Dashboard({ data, activeSection, setActiveSection }) {
-  // Which explanatory guide is open in the modal (null means closed).
+  // Which guide popup is open right now. null means no popup is open.
   const [activeGuideKey, setActiveGuideKey] = useState(null);
 
-  // User-facing error message for export actions.
+  // Short error message shown if a download fails.
   const [exportError, setExportError] = useState(null);
 
   /**
-   * Download the backend-generated CSV export.
+   * Download CSV.
    *
-   * Flow:
-   * 1) Clear any stale export errors
-   * 2) If backend returned an export filename, open the download URL
-   * 3) Otherwise show a friendly message so the UI fails gracefully
+   * How it works:
+   * Step 1: The backend already made a processed CSV after analysis.
+   * Step 2: `data.export_file` stores that CSV filename.
+   * Step 3: This button opens the backend download link in a new tab.
    *
-   * This does not regenerate analysis. It simply downloads the CSV that the
-   * backend already created during the completed analysis job.
+   * This does not analyze the file again. It only downloads the ready CSV.
    */
   const handleExportCSV = () => {
     setExportError(null);
@@ -83,11 +74,13 @@ function Dashboard({ data, activeSection, setActiveSection }) {
   };
 
   /**
-   * Build a compact JSON summary from the current dashboard data and ask the
-   * backend to save it as a downloadable file.
+   * Download JSON.
    *
-   * We export from current in-memory dashboard data instead of refetching the
-   * analysis. That keeps the export consistent with what the user is viewing.
+   * How it works:
+   * Step 1: Take the current dashboard summary from `data`.
+   * Step 2: Send that summary to the backend.
+   * Step 3: The backend saves it as a JSON file.
+   * Step 4: Open the backend download link for that JSON file.
    */
   const handleExportJSON = async () => {
     try {
@@ -108,18 +101,17 @@ function Dashboard({ data, activeSection, setActiveSection }) {
     }
   };
 
-  // Convert sentiment object into entries to compute the dominant sentiment bucket.
+  // Turn the sentiment object into a list so we can find the biggest group.
   const sentimentEntries = Object.entries(data.sentiment_distribution || {});
 
-  // Pick the sentiment class with highest review count for the snapshot guide.
+  // This is the largest sentiment group: positive, neutral, or negative.
   const leadingSentiment = sentimentEntries.reduce(
     (best, current) => (!best || current[1].count > best[1].count ? current : best),
     null
   );
 
-  // Content model for guide modal sections. Keep copy close to UI logic so
-  // value strings can directly use the current analysis data.
-  // The top summary-bar info button opens the `snapshot` entry below.
+  // Text for the small info button in the top summary bar.
+  // It uses the actual loaded result, so the guide matches the current file.
   const guideSections = {
     snapshot: {
       title: 'Analysis Snapshot',
@@ -155,14 +147,14 @@ function Dashboard({ data, activeSection, setActiveSection }) {
     },
   };
 
-  // Resolve the active guide payload for modal rendering.
+  // Look up the guide entry that matches the button the user clicked.
   const activeGuide = activeGuideKey ? guideSections[activeGuideKey] : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/*
-        Summary bar: high-signal metrics that answer "what was analyzed?"
-        and "what is the current sentiment picture?" at a glance.
+        Summary bar at the top. It answers two simple questions:
+        "What file was analyzed?" and "How does the sentiment look?".
       */}
       <div className="card">
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -190,14 +182,15 @@ function Dashboard({ data, activeSection, setActiveSection }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            {/* CSV downloads the processed review rows. JSON downloads summary data. */}
             <button className="btn btn-secondary" onClick={handleExportCSV}>
               <Download size={14} /> CSV
             </button>
             <button className="btn btn-secondary" onClick={handleExportJSON}>
               <Database size={14} /> JSON
             </button>
-            {/* This uses the shared guide modal system: click -> set guide key ->
-                resolve `guideSections.snapshot` -> render in InfoGuideModal. */}
+            {/* Uses the shared guide popup. When clicked, it sets the guide key,
+                looks up `guideSections.snapshot`, and shows it in InfoGuideModal. */}
             <GuideButton
               label="Explain analysis snapshot"
               onClick={() => setActiveGuideKey('snapshot')}
@@ -208,23 +201,24 @@ function Dashboard({ data, activeSection, setActiveSection }) {
         </div>
       </div>
 
-      {/* Export feedback appears above the selected section for immediate visibility. */}
+      {/* Show the download error right above the section so the user sees it fast. */}
       {exportError && (
         <div className="alert alert-error" style={{ marginTop: -4 }}>
           {exportError}
         </div>
       )}
 
-      {/* Conditional panel rendering keeps each analysis block focused and isolated. */}
-      {/* Each child receives the same backend result object and is responsible only
-          for view-specific reshaping such as pieData, barData, or filtered trends. */}
+      {/* Show only the section the user picked. Each section is its own card. */}
+      {/* All children get the same backend result. They only do small reshaping */}
+      {/* for their own charts (pie data, bar data, filtered trends, and so on). */}
       {activeSection === 'overview' && <SentimentOverview data={data} />}
       {activeSection === 'aspects' && <AspectAnalysis data={data} />}
       {activeSection === 'themes' && <ThemeSummary data={data} />}
       {activeSection === 'trends' && <TrendChart data={data} />}
       {activeSection === 'reviews' && <ReviewsTable data={data} />}
 
-      {/* Guide modal is always mounted and controlled by activeGuide for simple open/close logic. */}
+      {/* The guide popup is always in the DOM. It opens when activeGuide is set
+          and closes when it is null, so the open/close logic stays simple. */}
       <InfoGuideModal
         activeGuide={activeGuide}
         onClose={() => setActiveGuideKey(null)}

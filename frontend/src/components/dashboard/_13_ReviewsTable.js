@@ -1,29 +1,40 @@
 // _13_ReviewsTable.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Renders the "Reviews" tab of the dashboard.
-// The dashboard response includes a capped review sample for fast initial load.
-// When this tab opens, it asks the backend to read the saved processed export
-// and return the full review list. Filtering, sorting, and pagination then
-// happen in the browser against that loaded list.
+// [Reviews Tab] Detailed Row-by-Row Review Table, Filter, Sort, and Export
 //
-// User controls:
-//   - Text search: matches review body and optional summary field
-//   - Sentiment quick-filter buttons: all / positive / neutral / negative
-//   - Column header sort: text, predicted_sentiment, confidence, rating
-//   - Paginated output: 20 rows per page with Previous / Next buttons
+// Background context and design choices:
+// 1. Loading strategy:
+//    - The initial dashboard response contains only a capped sample (500 rows)
+//      to keep the dashboard rendering fast.
+//    - When the user switches to this tab, it fires a query to `/api/reviews`
+//      to fetch the full processed dataset from the backend exports on-demand.
+// 2. Client-side search, filtering, and sorting:
+//    - Once the full review set is loaded, all search matching, sentiment
+//      filtering, date slicing, column sorting, and paginated display slicing
+//      happen entirely in the browser. This eliminates API delay when typing.
+// 3. Complicated drill-down filter (Keywords, Phrases, and Aspects):
+//    - Compiles a list of available theme terms from text mining results
+//      (TF-IDF keywords, n-gram phrases, word clouds) and detected aspects.
+//    - Matches user choices against a combined review metadata index to find
+//      exact occurrences.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Search, ChevronUp, ChevronDown, FileText, Loader2, Calendar, Download, Hash, X } from 'lucide-react';
 import { getReviews } from '../../_1_api';
 
+// Shorten long product identifiers to prevent filters and dropdown selectors
+// from stretching the layout boundaries.
 function truncateId(text, max = 50) {
-  // Keep long product IDs from stretching review-table filters.
   if (!text || text.length <= max) return text;
   return text.slice(0, max) + '...';
 }
 
+// buildThemeFilterOptions: compiles a dropdown choices list for the complicated drill-down filter.
+// It searches through the backend's text-mining results (keywords, phrases, word clouds)
+// and aspect categories extracted from all reviews, returning a deduplicated array
+// of items formatted with category prefixes (e.g. "Keyword: soft", "Aspect: Delivery").
+// Capped at 60 items to prevent the dropdown DOM list from degrading page scroll performance.
 function buildThemeFilterOptions(themeSummary, reviews) {
-  // Build dropdown choices from keywords, phrases, word-cloud terms, and aspects.
   const terms = new Map();
   const addTerm = (term, prefix = 'Keyword') => {
     const normalized = normalizeThemeTerm(term);
@@ -34,25 +45,32 @@ function buildThemeFilterOptions(themeSummary, reviews) {
     });
   };
 
+  // 1. Add overall TF-IDF keywords
   (themeSummary?.overall_keywords || []).forEach(([term]) => addTerm(term));
+
+  // 2. Add overall frequent phrases (N-grams)
   (themeSummary?.overall_phrases || []).forEach(([term]) => addTerm(term, 'Phrase'));
 
+  // 3. Add sentiment-bucketed keywords and phrases
   Object.values(themeSummary?.themes_by_sentiment || {}).forEach((group) => {
     (group?.keywords || []).forEach(([term]) => addTerm(term));
     (group?.phrases || []).forEach(([term]) => addTerm(term, 'Phrase'));
   });
 
+  // 4. Add praises and complaints keywords and phrases
   Object.values(themeSummary?.complaints_and_praises || {}).forEach((group) => {
     (group?.keywords || []).forEach(([term]) => addTerm(term));
     (group?.phrases || []).forEach(([term]) => addTerm(term, 'Phrase'));
   });
 
+  // 5. Add words from dynamic word clouds
   Object.values(themeSummary?.word_clouds || {}).forEach((words) => {
     if (Array.isArray(words)) {
       words.forEach((word) => addTerm(word?.text || word?.[0]));
     }
   });
 
+  // 6. Add aspects detected on review rows
   reviews.forEach((review) => {
     Object.keys(review.aspects || {}).forEach((aspect) => addTerm(aspect, 'Aspect'));
   });
@@ -60,27 +78,32 @@ function buildThemeFilterOptions(themeSummary, reviews) {
   return Array.from(terms.values()).slice(0, 60);
 }
 
+// normalizeThemeTerm: converts terms to lowercase and collapses spaces.
+// This ensures that terms match accurately, even if spacing or case formats differ.
 function normalizeThemeTerm(term) {
-  // Normalize filter text so matching works even when spacing/casing differs.
   return String(term || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// formatThemeLabel: truncates long keywords or phrases so that they fit
+// neatly inside the filter select dropdown options list.
 function formatThemeLabel(term) {
-  // Shorten long theme labels for the dropdown.
   const text = String(term || '').trim();
   if (!text) return 'Unknown';
   return text.length > 34 ? `${text.slice(0, 34)}...` : text;
 }
 
+// reviewMatchesTheme: checks if a review record contains the user's selected filter term.
+// Checks text, summaries, and aspects using getReviewThemeSearchText.
 function reviewMatchesTheme(review, theme) {
-  // Check whether one review contains the selected theme/aspect term.
   const term = normalizeThemeTerm(theme);
   if (!term) return true;
   return getReviewThemeSearchText(review).includes(term);
 }
 
+// getReviewThemeSearchText: compiles all searchable fields of a single review
+// (original text, AI summary, product ID, aspect names, aspect tags, and aspect sentiment scores)
+// into one single normalized search string to enable the drill-down filter match.
 function getReviewThemeSearchText(review) {
-  // Combine searchable review fields and aspect labels into one text string.
   const aspects = Object.entries(review.aspects || {}).flatMap(([aspect, info]) => [
     aspect,
     info?.label,
@@ -94,33 +117,55 @@ function getReviewThemeSearchText(review) {
   ].map((value) => normalizeThemeTerm(value)).join(' ');
 }
 
+/**
+ * ReviewsTable Component
+ *
+ * Renders the table view, filters, pagination, and detail popup cards.
+ * Implements search, category filters, date boundaries, sort indexes, and CSV exports.
+ */
 function ReviewsTable({ data }) {
-  // The initial dashboard payload is capped for responsiveness. When available,
-  // `/api/reviews` loads the full processed export so filtering and pagination
-  // can cover every analyzed row.
+  // --- STATE HOOKS ---
+  // initialReviews: saves the capped sample (500 rows) from the main dashboard payload as our baseline fallback.
   const initialReviews = useMemo(() => (Array.isArray(data?.reviews) ? data.reviews : []), [data?.reviews]);
   const allProducts = data.product_summary?.top_products || [];
   const hasProductFilter = allProducts.length > 1 && Boolean(data.export_file);
+
+  // selectedProduct: captures the active product filter. Defaults to 'all' for dataset-wide rows.
   const [selectedProduct, setSelectedProduct] = useState('all');
+
+  // loadedReviews: stores the full list of reviews returned from the backend exports folder.
   const [loadedReviews, setLoadedReviews] = useState(initialReviews);
   const [loadedTotal, setLoadedTotal] = useState(initialReviews.length);
+
+  // isFetchingReviews: tracks active API calls to show a loading spinner next to the export button.
   const [isFetchingReviews, setIsFetchingReviews] = useState(false);
   const [loadError, setLoadError] = useState('');
+
+  // Slicing filters stored in component state:
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTheme, setSelectedTheme] = useState('all');
   const [sentimentFilter, setSentimentFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // selectedReview: stores the review object currently open in the details pop-up modal.
   const [selectedReview, setSelectedReview] = useState(null);
-  const [sortField, setSortField] = useState('confidence'); // default sort: highest-confidence reviews first
-  const [sortDir, setSortDir] = useState('desc');           // descending by default
+
+  // Sorting state variables:
+  const [sortField, setSortField] = useState('confidence'); // default sort: highest model-confidence reviews first
+  const [sortDir, setSortDir] = useState('desc');           // descending order (highest score first) by default
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20; // show 20 rows per page to keep the table manageable
+  const itemsPerPage = 20; // limits page size to 20 rows to keep the UI scroll responsive
+
   const reviews = loadedReviews;
   const hasRating = reviews.some((r) => r.rating !== undefined && r.rating !== null);
   const hasProductId = reviews.some((r) => r.product_id);
   const hasDate = reviews.some((r) => r.date);
 
+  // --- API DATA LOADER ---
+  // loadReviewRows: fires an asynchronous request to fetch the entire review dataset from the backend exports folder.
+  // This loads the full list on-demand, overriding the initial capped overview list.
+  // If the API call fails, we safely fall back to the capped initialReviews dataset so the user can still see data.
   const loadReviewRows = useCallback(async (productId) => {
     if (!data.export_file) {
       setLoadedReviews(initialReviews);
@@ -135,7 +180,7 @@ function ReviewsTable({ data }) {
       const nextReviews = Array.isArray(response.data?.reviews) ? response.data.reviews : [];
       setLoadedReviews(nextReviews);
       setLoadedTotal(response.data?.total_reviews ?? nextReviews.length);
-      setCurrentPage(1);
+      setCurrentPage(1); // reset pagination to the first page when loading new data
     } catch (err) {
       setLoadError(err.response?.data?.error || err.message || 'Unable to load all reviews.');
       setLoadedReviews(initialReviews);
@@ -145,6 +190,9 @@ function ReviewsTable({ data }) {
     }
   }, [data.export_file, initialReviews]);
 
+  // --- EFFECT: DATASET SYNCHRONIZATION ---
+  // Automatically resets all search keywords, dropdown filters, sentiment filters, and modal states
+  // and re-fetches review rows whenever the user uploads a new dataset.
   useEffect(() => {
     setSelectedProduct('all');
     setSearchTerm('');
@@ -156,6 +204,9 @@ function ReviewsTable({ data }) {
     loadReviewRows('all');
   }, [data.export_file, loadReviewRows]);
 
+  // --- PRODUCT DRILL-DOWN HANDLER ---
+  // Triggered when the user selects a specific item in the product filter dropdown.
+  // Resets query filters and queries the backend for reviews matching that product ID.
   const handleProductChange = (productId) => {
     setSelectedProduct(productId);
     setSearchTerm('');
@@ -167,18 +218,25 @@ function ReviewsTable({ data }) {
     loadReviewRows(productId);
   };
 
+  // themeFilterOptions: compiles the choice list for our complicated drill-down filter.
+  // Memoized so we don't re-parse the lists on simple keystroke updates (like typing text in search).
   const themeFilterOptions = useMemo(() => {
     return buildThemeFilterOptions(data.theme_summary, reviews);
   }, [data.theme_summary, reviews]);
 
   const hasThemeFilter = themeFilterOptions.length > 0;
 
+  // Clean up selectedTheme filter option state if the current choice is no longer present in a newly loaded dropdown set.
   useEffect(() => {
     if (selectedTheme !== 'all' && !themeFilterOptions.some((option) => option.value === selectedTheme)) {
       setSelectedTheme('all');
     }
   }, [selectedTheme, themeFilterOptions]);
 
+  // --- EFFECT: DETAILS MODAL ACCESSIBILITY ---
+  // Listens for 'Escape' key presses to close the details card modal.
+  // Automatically disables document scrolling (overflow: hidden) when the modal is open
+  // to prevent double-scrollbars on background page elements, restoring it on close.
   useEffect(() => {
     if (!selectedReview) return undefined;
 
@@ -197,13 +255,17 @@ function ReviewsTable({ data }) {
     };
   }, [selectedReview]);
 
-  // All filtering and sorting is wrapped in one useMemo so it only recomputes
-  // when searchTerm, sentimentFilter, sortField, or sortDir changes.
+  // --- CLIENT-SIDE FILTERING & SORTING ENGINE ---
+  // All search keywords, theme selectors, sentiment buttons, date slices, and column sorts
+  // are compiled inside this single useMemo hook.
+  // This ensures that we only re-run these expensive array filter operations when the user
+  // actually changes a search keyword or sorting index.
   const filteredReviews = useMemo(() => {
-    let result = [...reviews]; // shallow copy so we don't mutate the prop
+    let result = [...reviews]; // create a shallow copy to avoid mutating our main state array directly
 
-    // Step 1 – text search: check both the raw review text and the AI summary
-    // (if one was included in the analysis output).
+    // Step 1: Text Search
+    // Scans the main review verbatim text, the optional AI summary, and the product ID.
+    // Converted to lowercase to ensure case-insensitive matching.
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(
@@ -214,20 +276,25 @@ function ReviewsTable({ data }) {
       );
     }
 
+    // Step 1b: Theme and Aspect Drill-Down
+    // Filters reviews based on the chosen keyword, n-gram phrase, or aspect tag.
     if (selectedTheme !== 'all') {
       result = result.filter((r) => reviewMatchesTheme(r, selectedTheme));
     }
 
-    // Step 2 – sentiment quick-filter: 'all' skips this step entirely.
+    // Step 2: Sentiment Filter
+    // Filters reviews by their predicted sentiment label ('positive', 'neutral', 'negative').
     if (sentimentFilter !== 'all') {
       result = result.filter((r) => r.predicted_sentiment === sentimentFilter);
     }
 
-    // Step 2b – date range filter: only applied when at least one bound is set
-    // and the review row has a parseable date value.
+    // Step 2b: Date Range Filter
+    // Filters reviews to fit between 'dateFrom' and 'dateTo'.
+    // Stored dates are parsed into millisecond timestamps. We add 24 hours (minus 1ms)
+    // to the end date to ensure that reviews submitted on the final day are included.
     if (dateFrom || dateTo) {
       const fromMs = dateFrom ? new Date(dateFrom).getTime() : null;
-      const toMs = dateTo ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 - 1 : null; // include the entire 'to' day
+      const toMs = dateTo ? new Date(dateTo).getTime() + 24 * 60 * 60 * 1000 - 1 : null;
       result = result.filter((r) => {
         if (!r.date) return false;
         const rowMs = new Date(r.date).getTime();
@@ -238,9 +305,10 @@ function ReviewsTable({ data }) {
       });
     }
 
-    // Step 3 – sort: works for both numeric fields (confidence, rating) and
-    // string fields (text, predicted_sentiment). String comparison is
-    // lowercased so sorting is case-insensitive.
+    // Step 3: Column Sorting
+    // Orders rows based on the selected field (confidence, rating, date, text, etc.).
+    // Values are passed through normalizeSortValue to convert strings to lowercase for alphabetical sorting,
+    // while keeping numbers intact for correct mathematical sorting.
     result.sort((a, b) => {
       const valA = normalizeSortValue(a[sortField]);
       const valB = normalizeSortValue(b[sortField]);
@@ -251,8 +319,8 @@ function ReviewsTable({ data }) {
     return result;
   }, [reviews, searchTerm, selectedTheme, sentimentFilter, dateFrom, dateTo, sortField, sortDir]);
 
-  // Standard pagination: calculate total pages then slice the sorted result
-  // to show only the current page's rows.
+  // --- PAGINATION BLOCK ---
+  // Splits our sorted/filtered dataset into page chunks to keep page scroll performance smooth.
   const totalPages = Math.max(1, Math.ceil(filteredReviews.length / itemsPerPage));
   const paginatedReviews = filteredReviews.slice(
     (currentPage - 1) * itemsPerPage,
@@ -261,6 +329,8 @@ function ReviewsTable({ data }) {
   const startRow = filteredReviews.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
   const endRow = Math.min(currentPage * itemsPerPage, filteredReviews.length);
 
+  // Automatically reset/constrain the active page number if filters reduce the row count
+  // to a level where the current page number no longer exists.
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
@@ -289,9 +359,9 @@ function ReviewsTable({ data }) {
     );
   }
 
-  // Clicking a column header a second time reverses the sort direction.
-  // Clicking a different column always starts descending so the most extreme
-  // values appear at the top immediately.
+  // handleSort: triggered when clicking a table column header.
+  // Clicking the same header reverses the direction.
+  // Clicking a different header switches to descending sort so highest scores/ratings show up first.
   const handleSort = (field) => {
     if (sortField === field) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
@@ -301,8 +371,7 @@ function ReviewsTable({ data }) {
     }
   };
 
-  // Renders a directional chevron icon next to the active sort column only.
-  // Returns null for all other columns so the header row stays uncluttered.
+  // SortIcon: renders visual chevrons on the column header that is actively driving the sorting.
   const SortIcon = ({ field }) => {
     if (sortField !== field) return null;
     return sortDir === 'asc' ? (
@@ -312,14 +381,17 @@ function ReviewsTable({ data }) {
     );
   };
 
-  // Produces a color-coded badge using the CSS class pattern badge-<sentiment>
-  // (e.g. badge-positive, badge-neutral, badge-negative) defined in _15_index.css.
+  // sentimentBadge: maps sentiment scores to CSS badge styles defined in index.css (green, red, yellow).
   const sentimentBadge = (sentiment) => {
     const normalized = sentiment || 'neutral';
     const cls = `badge badge-${normalized}`;
     return <span className={cls}>{normalized}</span>;
   };
 
+  // --- EXPORT CURRENT VIEW HANDLER ---
+  // Compiles and exports the user's current filtered and sorted table view directly into a CSV file.
+  // It handles header labeling, decimal formatting, nested aspect tag conversion, CSV cell character escaping,
+  // UTF-8 BOM encoding for Microsoft Excel support, and triggers a download link simulation.
   const handleExportReviews = () => {
     if (filteredReviews.length === 0) return;
 
@@ -333,6 +405,9 @@ function ReviewsTable({ data }) {
       ['date', 'Date'],
       ['aspects', 'Aspects'],
     ];
+
+    // Format fields: convert nested aspect objects into semicolon-separated tags,
+    // and format confidence levels to percentages.
     const rows = filteredReviews.map((review) => (
       columns.map(([key]) => {
         if (key === 'confidence') return formatConfidence(review.confidence);
@@ -340,10 +415,14 @@ function ReviewsTable({ data }) {
         return review[key] ?? '';
       })
     ));
+
+    // Combine headers and rows, escaping values to ensure valid CSV syntax (collapsing newlines, escaping quotes).
     const csv = [
       columns.map(([, label]) => label),
       ...rows,
     ].map((row) => row.map(escapeCsvValue).join(',')).join('\n');
+
+    // Create a text Blob with a UTF-8 Byte Order Mark (\uFEFF) to make Excel parse the file correctly.
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -358,7 +437,12 @@ function ReviewsTable({ data }) {
 
   return (
     <div className="card reviews-card">
-      {/* Filters */}
+
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 1: TOOLBAR & FILTERS
+          Contains product-level drilldown dropdowns, search query bars, and
+          the complicated drill-down theme filter options dropdown.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="reviews-toolbar">
         <div className="reviews-filter-row reviews-filter-row-main">
           {hasProductFilter && (
@@ -399,6 +483,11 @@ function ReviewsTable({ data }) {
             </div>
           )}
         </div>
+
+        {/* ───────────────────────────────────────────────────────────────────────
+            VISUAL BLOCK 1B: DATE RANGE & SENTIMENT FILTERS
+            Slices reviews by submission dates or quick predicted labels (positive, neutral, negative).
+            ─────────────────────────────────────────────────────────────────────── */}
         <div className="reviews-filter-row reviews-filter-row-secondary">
           {hasDate && (
             <div className="reviews-date-filter" aria-label="Filter reviews by date range">
@@ -445,7 +534,10 @@ function ReviewsTable({ data }) {
         </div>
       </div>
 
-      {/* Count */}
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 2: REVIEW COUNT & EXPORT CURRENT VIEW ACTION STRIP
+          Exposes record statistics (total matches) and serves export download clicks.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="reviews-count-strip">
         <span>
           Showing {startRow.toLocaleString()}-{endRow.toLocaleString()} of {filteredReviews.length.toLocaleString()} loaded reviews
@@ -483,7 +575,10 @@ function ReviewsTable({ data }) {
         </div>
       </div>
 
-      {/* Table */}
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 3: DATA TABLE WITH CUSTOM SORTING & COLUMN HEADERS
+          Displays sorted review text columns, product IDs, badges, scores, ratings, and aspect tags.
+          ─────────────────────────────────────────────────────────────────────── */}
       <div className="reviews-table-wrap">
         <table className="data-table">
           <thead>
@@ -559,9 +654,9 @@ function ReviewsTable({ data }) {
                 {hasDate && (
                   <td className="reviews-date-cell">{review.date || '-'}</td>
                 )}
-      {/* Aspects column: each detected aspect for this review is rendered
-          as a color-coded tag (green = positive, red = negative, grey = neutral)
-          so the reader can scan the topic sentiment at a glance. */}
+
+                {/* Aspects column: renders detected aspect keywords as color tags.
+                    (Green = Positive, Red = Negative, Gray = Neutral). Capped at 8 tags to prevent cellular clutter. */}
                 <td>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                     {Object.entries(review.aspects || {}).length > 0 ? (
@@ -589,7 +684,10 @@ function ReviewsTable({ data }) {
         </table>
       </div>
 
-      {/* Pagination */}
+      {/* ───────────────────────────────────────────────────────────────────────
+          VISUAL BLOCK 4: PAGINATION CONTROLS
+          Enables page switching when filtered list exceeds page sizes.
+          ─────────────────────────────────────────────────────────────────────── */}
       {totalPages > 1 && (
         <div className="reviews-pagination">
           <button
@@ -611,6 +709,8 @@ function ReviewsTable({ data }) {
           </button>
         </div>
       )}
+
+      {/* ReviewDetailModal: overlays full verbatims and aspects when clicking a row */}
       <ReviewDetailModal
         review={selectedReview}
         onClose={() => setSelectedReview(null)}
@@ -622,12 +722,21 @@ function ReviewsTable({ data }) {
   );
 }
 
+/**
+ * ReviewDetailModal Component
+ *
+ * Renders the overlay popup card to review specific verbatim details.
+ * Contains model prediction progress track meters, metadata tag details,
+ * scrolling customer verbatim blocks, AI summary text, and detected aspect chips.
+ */
 function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }) {
   if (!review) return null;
 
   const aspects = Object.entries(review.aspects || {});
   const sentiment = review.predicted_sentiment || 'neutral';
   const confidencePercent = getConfidencePercent(review.confidence);
+
+  // Conditionally compile meta tags based on columns present in CSV.
   const metaItems = [
     hasRating ? { label: 'Rating', value: review.rating ?? '-', mono: true } : null,
     hasDate ? { label: 'Date', value: review.date || '-', mono: true } : null,
@@ -663,6 +772,8 @@ function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }
         </div>
         <div className="modal-body review-detail-body">
           <div className="review-detail-hero">
+
+            {/* Sentiment prediction card with confidence track bar */}
             <section className="review-detail-sentiment-card">
               <div className="section-label">Prediction</div>
               <div className="review-detail-sentiment-main">
@@ -681,6 +792,7 @@ function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }
               <p>Model confidence for this individual review classification.</p>
             </section>
 
+            {/* Metadata tag card grid */}
             {metaItems.length > 0 && (
               <div className="review-detail-meta-grid">
                 {metaItems.map((item) => (
@@ -696,6 +808,8 @@ function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }
           </div>
 
           <div className="review-detail-content-grid">
+
+            {/* Customer verbatim text container */}
             <section className="review-detail-section review-detail-review-card">
               <div className="review-detail-section-heading">
                 <div>
@@ -708,17 +822,21 @@ function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }
             </section>
 
             <div className="review-detail-side-stack">
+
+              {/* Optional AI summary preview */}
               {review.summary && (
                 <section className="review-detail-section review-detail-summary-card">
                   <div className="section-label">Summary</div>
                   <p className="review-detail-summary">"{review.summary}"</p>
                 </section>
               )}
+
+              {/* List of detected aspect category chips */}
               <section className="review-detail-section review-detail-aspect-card">
                 <div className="review-detail-section-heading">
                   <div>
-                    <div className="section-label">Detected Aspects</div>
-                    <h4>Topic sentiment</h4>
+                     <div className="section-label">Detected Aspects</div>
+                     <h4>Topic sentiment</h4>
                   </div>
                   <Hash size={18} />
                 </div>
@@ -750,6 +868,11 @@ function ReviewDetailModal({ review, onClose, hasRating, hasProductId, hasDate }
   );
 }
 
+/**
+ * ReviewDetailMeta Component
+ *
+ * Renders a single metadata card inside the detail popup card grid (e.g. displaying Rating or Date).
+ */
 function ReviewDetailMeta({ label, value, mono = false }) {
   return (
     <div className="review-detail-meta-card">
@@ -759,12 +882,19 @@ function ReviewDetailMeta({ label, value, mono = false }) {
   );
 }
 
+// getConfidencePercent: converts confidence float scores (0.0 to 1.0)
+// into percentage values (0 to 100) to feed Recharts tracks.
 function getConfidencePercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, Math.min(100, numeric * 100));
 }
 
+/**
+ * ReviewsProductFilter Component
+ *
+ * Renders the product filter select control and active fetching statuses.
+ */
 function ReviewsProductFilter({ allProducts, selectedProduct, onChange, disabled }) {
   return (
     <div className="reviews-product-filter">
@@ -796,18 +926,24 @@ function ReviewsProductFilter({ allProducts, selectedProduct, onChange, disabled
   );
 }
 
+// normalizeSortValue: helper sorting normalizer.
+// Converts strings to lowercase so character sorting is alphabetical rather than ASCII-cased.
 function normalizeSortValue(value) {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number') return value;
   return String(value).toLowerCase();
 }
 
+// escapeCsvValue: escapes cells for CSV compatibility.
+// If values contain commas, quotes, or newlines, we wrap them in double quotes and escape inner quote marks.
 function escapeCsvValue(value) {
   const text = value === null || value === undefined ? '' : String(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
+// formatReviewAspects: flattens the aspects dictionary of a review row
+// into a semicolon-separated string for CSV columns (e.g. "Price: positive; Quality: negative").
 function formatReviewAspects(aspects) {
   if (!aspects || typeof aspects !== 'object') return '';
   return Object.entries(aspects)
@@ -815,6 +951,7 @@ function formatReviewAspects(aspects) {
     .join('; ');
 }
 
+// getReviewExportFileName: generates a sanitized download filename for CSV reviews exports.
 function getReviewExportFileName(productId) {
   const safeProduct = productId === 'all'
     ? 'all-products'
@@ -822,12 +959,14 @@ function getReviewExportFileName(productId) {
   return `reviews-${safeProduct}-${new Date().toISOString().slice(0, 10)}.csv`;
 }
 
+// formatConfidence: converts a float model score to a 1-decimal place percentage string (e.g. "98.2%").
 function formatConfidence(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '-';
   return `${(numeric * 100).toFixed(1)}%`;
 }
 
+// renderRating: renders star icons based on numerical values.
 function renderRating(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return <span style={{ color: 'var(--text-muted)' }}>-</span>;

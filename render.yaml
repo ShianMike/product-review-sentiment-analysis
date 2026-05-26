@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: reviewlens-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn --chdir backend _11_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 300
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: CORS_ORIGINS
+        value: https://shianmike.github.io
+      - key: MAX_UPLOAD_MB
+        value: "50"
+      - key: MAX_UPLOAD_FILES
+        value: "50"
+      - key: MAX_EXPORT_FILES
+        value: "200"
+      - key: MAX_PROJECT_FILES
+        value: "50"
+      - key: STORAGE_MAX_AGE_HOURS
+        value: "168"

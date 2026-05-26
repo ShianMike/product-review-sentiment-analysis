@@ -1,17 +1,41 @@
+// _6_SinglePredict.js
+// ─────────────────────────────────────────────────────────────────────────────
+// [Single Prediction Tab] Interactive Sentiment and Aspect testing sandbox.
+//
+// Background context and design choices:
+// 1. What does this component do?
+//    - Allows users to type or paste a single review verbatim text block
+//      and test the classification model and aspect extraction rules in real-time.
+// 2. Data flow:
+//    - The user input text is transmitted via a POST request to `/api/predict`.
+//    - The backend processes the review using identical training-time cleaners,
+//      runs the classifier, computes probability margins, extracts aspect terms,
+//      and returns a structured payload.
+// 3. What is displayed?
+//    - The predicted sentiment label (Positive, Neutral, Negative) along with confidence.
+//    - Horizontal probability distribution tracks showing exact classification weights.
+//    - Extract aspects tags displaying sentiment labels and TextBlob polarity scores.
+//    - The cleaned text block to show preprocessing token transformations.
+// ─────────────────────────────────────────────────────────────────────────────
 import React, { useState } from 'react';
 import { Send, Loader2, MessageSquare } from 'lucide-react';
 import { predictSingle } from '../_1_api';
 
-// Single-review test page:
-// users can type one review and see the model's sentiment and detected aspects.
 function SinglePredict() {
+  // --- STATE HOOKS ---
+  // text: stores the user's raw verbatim review input string.
   const [text, setText] = useState('');
+
+  // result: holds the prediction outcomes returned from the backend (sentiment, probabilities, aspects).
   const [result, setResult] = useState(null);
+
+  // isLoading: triggers visual loading animations on the submit button.
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Sends one review to the Flask API and stores the returned sentiment,
-  // confidence, and aspect labels for the result panel below.
+  // --- API SUBMISSION CALLBACK ---
+  // handlePredict: sends the input review to our Flask backend using the api wrapper.
+  // Resets errors and updates loading indicators before transmitting the payload.
   const handlePredict = async () => {
     if (!text.trim()) return;
     setIsLoading(true);
@@ -19,7 +43,7 @@ function SinglePredict() {
 
     try {
       const response = await predictSingle(text);
-      setResult(response.data);
+      setResult(response.data); // saves the returned prediction payload (label, confidence, aspects)
     } catch (err) {
       setError(err.response?.data?.error || 'Prediction failed');
     } finally {
@@ -27,7 +51,9 @@ function SinglePredict() {
     }
   };
 
-  // Enter submits quickly, while Shift+Enter still lets the user add new lines.
+  // handleKeyDown: intercepts keyboard actions on the textarea input field.
+  // Pressing 'Enter' triggers submission immediately for a snappy user experience.
+  // Pressing 'Shift+Enter' bypasses the submission, allowing users to enter carriage return line breaks.
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -35,6 +61,7 @@ function SinglePredict() {
     }
   };
 
+  // Color mappings used to apply green (positive), yellow (neutral), and red (negative) styling elements.
   const sentimentColor = {
     positive: 'var(--green)',
     neutral: 'var(--yellow)',
@@ -49,6 +76,8 @@ function SinglePredict() {
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
+
+      {/* HEADER SECTION */}
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
         <MessageSquare size={20} style={{ color: 'var(--accent)' }} />
         <div>
@@ -59,7 +88,7 @@ function SinglePredict() {
         </div>
       </div>
 
-      {/* Input */}
+      {/* INPUT CARD: Text area verbatim field and analyze button */}
       <div className="card">
         <div className="card-body">
           <textarea
@@ -89,17 +118,18 @@ function SinglePredict() {
         </div>
       </div>
 
-      {/* Error */}
+      {/* ERROR ALERT BOX */}
       {error && (
         <div className="alert alert-error" style={{ marginTop: 12 }}>
           {error}
         </div>
       )}
 
-      {/* Result */}
+      {/* RESULT OUTCOME CONTAINER */}
       {result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-          {/* Sentiment Result */}
+
+          {/* VISUAL BLOCK 1: PREDICTED SENTIMENT LABEL & CONFIDENCE */}
           <div className="card" style={{ borderLeft: `3px solid ${sentimentColor[result.predicted_sentiment]}` }}>
             <div className="card-body">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -111,7 +141,8 @@ function SinglePredict() {
                 </span>
               </div>
 
-              {/* Probability bars */}
+              {/* VISUAL BLOCK 1B: PROBABILITY DISTRIBUTION BARS
+                  Traces the model's output weight across all 3 classes side-by-side. */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {Object.entries(result.probabilities).map(([label, prob]) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -131,7 +162,8 @@ function SinglePredict() {
             </div>
           </div>
 
-          {/* Aspects */}
+          {/* VISUAL BLOCK 2: DETECTED ASPECT CHIPS LIST
+              Shows which aspects were extracted, their label tone, and numeric polarity score. */}
           {result.aspects && Object.keys(result.aspects).length > 0 && (
             <div className="card">
               <div className="card-header">
@@ -164,7 +196,8 @@ function SinglePredict() {
             </div>
           )}
 
-          {/* Cleaned Text */}
+          {/* VISUAL BLOCK 3: CLEANED VERBATIM DISPLAY
+              Details what the text looked like after preprocessing contractions, emojis, and symbols. */}
           <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius)', padding: '10px 12px' }}>
             <div className="section-label">Cleaned Text</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>{result.cleaned_text}</div>
@@ -172,7 +205,8 @@ function SinglePredict() {
         </div>
       )}
 
-      {/* Example Prompts */}
+      {/* VISUAL BLOCK 4: EXAMPLE PROMPT SANDBOX BUTTONS
+          Lets users click pre-written reviews to quickly test predictions. */}
       <div style={{ marginTop: 24 }}>
         <div className="section-label" style={{ textAlign: 'center', marginBottom: 8 }}>Try these examples</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
