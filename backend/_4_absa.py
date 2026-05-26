@@ -129,13 +129,16 @@ def detect_aspects(text):
     return detected
 
 
-def get_aspect_sentiment(text, aspect):
+def get_aspect_sentiment(text, aspect, _blob=None, _sentence_texts=None):
     """
     Determines sentiment polarity and label for a specific aspect in a review.
 
     Instead of scoring the entire review, we only score sentences containing aspect keywords.
     This provides target-level sentiment (e.g. in "taste is good but service was poor", 'taste'
     scores positive while 'service' scores negative). Falls back to whole-text if no sentence matches.
+
+    Optional ``_blob`` and ``_sentence_texts`` let callers share a single TextBlob parse
+    across multiple aspect calls on the same text, avoiding redundant construction.
     """
     if not isinstance(text, str):
         return {'polarity': 0, 'subjectivity': 0, 'label': 'neutral'}
@@ -143,10 +146,11 @@ def get_aspect_sentiment(text, aspect):
     # Score only the specific sentences discussing the aspect.
     patterns = ASPECT_PATTERNS.get(aspect, [])
 
-    blob = TextBlob(text)
+    blob = _blob if _blob is not None else TextBlob(text)
+    sentence_texts = _sentence_texts if _sentence_texts is not None else _extract_sentence_texts(text)
     aspect_sentence_texts = []
 
-    for sentence_text in _extract_sentence_texts(text):
+    for sentence_text in sentence_texts:
         for pattern in patterns:
             if pattern.search(sentence_text):
                 aspect_sentence_texts.append(sentence_text)
@@ -186,10 +190,20 @@ def analyze_aspects(text):
     - Dict mapping each detected aspect to its sentiment payload.
     """
     detected = detect_aspects(text)
-    results = {}
+    if not detected or not isinstance(text, str):
+        return {}
 
+    # Parse the text once and share the blob + sentence list across all aspects
+    # to avoid O(aspects) redundant TextBlob constructions per review.
+    blob = TextBlob(text)
+    try:
+        sentence_texts = [str(s) for s in blob.sentences]  # type: ignore[attr-defined]
+    except MissingCorpusError:
+        sentence_texts = [part.strip() for part in re.split(r'(?<=[.!?])\s+', text) if part.strip()] or [text]
+
+    results = {}
     for aspect in detected:
-        results[aspect] = get_aspect_sentiment(text, aspect)
+        results[aspect] = get_aspect_sentiment(text, aspect, _blob=blob, _sentence_texts=sentence_texts)
 
     return results
 
