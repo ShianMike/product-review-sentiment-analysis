@@ -145,10 +145,11 @@ function FileUpload({ onAnalysisComplete, isLoading, setIsLoading }) {
           setProgressPercent(100);
           setProgressStage('Completed');
           setProgress('Analysis complete!');
-          // This callback is the handoff point from "fetching" to "visualizing".
-          // job.result is the single payload later consumed by Dashboard.
+          // Refresh the saved-projects list before handing off to the dashboard.
+          // onAnalysisComplete switches the active tab which unmounts this
+          // component, so any state updates called after it are silently dropped.
+          await loadServerProjects();
           onAnalysisComplete(job.result);
-          loadServerProjects();
           return;
         }
 
