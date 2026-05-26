@@ -22,9 +22,10 @@ import os
 import sys
 import json
 import uuid
+import sqlite3
 import logging
 from threading import Thread, Lock
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ─── Third-party packages ────────────────────────────────────────────────────
 import pandas as pd
@@ -73,6 +74,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 EXPORT_FOLDER = os.path.join(os.path.dirname(__file__), 'exports')
 MODEL_COMPARISON_RESULTS_PATH = os.path.join(EXPORT_FOLDER, 'model_comparison_full_training_data.json')
 PROJECTS_FOLDER = os.path.join(os.path.dirname(__file__), 'projects')
+JOBS_DB_PATH = os.path.join(os.path.dirname(__file__), 'jobs.db')
 # The frontend accepts common spreadsheet formats used for product review data.
 ALLOWED_EXTENSIONS = {'.csv', '.xlsx', '.xls'}   # Only tabular formats are accepted
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -256,10 +258,42 @@ def ensure_latest_classifier():
 # - analysis needs multiple progress stages for a visible progress bar
 # - once analysis is done, the final dashboard payload must still be retrievable
 #
-# A simple dict + Lock is enough for this local Flask process. A larger
-# production system would use durable job storage or a queue such as Redis/Celery.
-ANALYSIS_JOBS = {}
-ANALYSIS_JOBS_LOCK = Lock()
+# Jobs are persisted in a SQLite database so they survive Gunicorn worker
+# restarts and platform-level process recycling (e.g. Render/Railway free tier).
+# Thread objects (non-serializable) are kept in a separate in-memory dict and
+# re-attached when the status endpoint reads a job back from SQLite.
+_JOB_THREADS: dict = {}          # job_id -> Thread (in-memory only, not persisted)
+_JOB_THREADS_LOCK = Lock()
+
+
+def _jobs_db() -> sqlite3.Connection:
+    """Open a per-call SQLite connection with WAL mode for safe multi-thread access."""
+    conn = sqlite3.connect(JOBS_DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL')
+    return conn
+
+
+def _init_jobs_db() -> None:
+    """Create the jobs table if it does not already exist."""
+    with _jobs_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_jobs (
+                job_id     TEXT PRIMARY KEY,
+                filename   TEXT NOT NULL,
+                status     TEXT NOT NULL DEFAULT 'queued',
+                progress   INTEGER NOT NULL DEFAULT 0,
+                stage      TEXT NOT NULL DEFAULT 'Queued',
+                message    TEXT NOT NULL DEFAULT '',
+                error      TEXT,
+                result     TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+
+_init_jobs_db()
 
 
 def _now_utc_iso():
@@ -268,47 +302,73 @@ def _now_utc_iso():
 
 
 def _create_analysis_job(filename):
-    """Create a new in-memory progress record for an analysis job.
+    """Insert a new job row and return its job_id.
 
-    The resulting dict becomes the source of truth for the frontend polling
-    flow. During processing, the browser reads `status`, `progress`, `stage`,
+    The row becomes the source of truth for the frontend polling flow.
+    During processing, the browser reads `status`, `progress`, `stage`,
     and `message`. After completion, it also reads `result`.
     """
     job_id = uuid.uuid4().hex
     now_iso = _now_utc_iso()
-    with ANALYSIS_JOBS_LOCK:
-        # All mutable job fields are initialized once to keep status payloads consistent.
-        ANALYSIS_JOBS[job_id] = {
-            'job_id': job_id,
-            'filename': filename,
-            'status': 'queued',
-            'progress': 0,
-            'stage': 'Queued',
-            'message': 'Upload received. Waiting to start analysis.',
-            'error': None,
-            'result': None,
-            'created_at': now_iso,
-            'updated_at': now_iso,
-        }
+    with _jobs_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO analysis_jobs
+                (job_id, filename, status, progress, stage, message,
+                 error, result, created_at, updated_at)
+            VALUES (?, ?, 'queued', 0, 'Queued',
+                    'Upload received. Waiting to start analysis.',
+                    NULL, NULL, ?, ?)
+            """,
+            (job_id, filename, now_iso, now_iso),
+        )
     return job_id
 
 
 def _update_analysis_job(job_id, **fields):
-    """Update mutable fields for a running/completed/failed analysis job."""
-    with ANALYSIS_JOBS_LOCK:
-        job = ANALYSIS_JOBS.get(job_id)
-        if not job:
-            # Missing IDs can happen if a stale client polls an evicted/nonexistent job.
-            return
-        job.update(fields)
-        job['updated_at'] = _now_utc_iso()
+    """Update mutable columns for a job row. Ignores the non-serializable `thread` key."""
+    # Thread objects cannot be stored in SQLite; they live in _JOB_THREADS.
+    thread = fields.pop('thread', None)
+    if thread is not None:
+        with _JOB_THREADS_LOCK:
+            _JOB_THREADS[job_id] = thread
+
+    if not fields:
+        return
+
+    fields['updated_at'] = _now_utc_iso()
+    # Serialize `result` dict to JSON text if present.
+    if 'result' in fields and fields['result'] is not None:
+        fields['result'] = json.dumps(fields['result'])
+
+    set_clause = ', '.join(f'{col} = ?' for col in fields)
+    values = list(fields.values()) + [job_id]
+    with _jobs_db() as conn:
+        conn.execute(
+            f'UPDATE analysis_jobs SET {set_clause} WHERE job_id = ?',
+            values,
+        )
 
 
 def _get_analysis_job(job_id):
-    """Return a shallow copy of a job record so callers cannot mutate global state."""
-    with ANALYSIS_JOBS_LOCK:
-        job = ANALYSIS_JOBS.get(job_id)
-        return dict(job) if job else None
+    """Return a job record dict (with thread re-attached) or None if not found."""
+    with _jobs_db() as conn:
+        row = conn.execute(
+            'SELECT * FROM analysis_jobs WHERE job_id = ?', (job_id,)
+        ).fetchone()
+    if row is None:
+        return None
+    job = dict(row)
+    # Deserialize result JSON back to a dict.
+    if job.get('result') and isinstance(job['result'], str):
+        try:
+            job['result'] = json.loads(job['result'])
+        except (json.JSONDecodeError, ValueError):
+            job['result'] = None
+    # Re-attach the live thread object so the status endpoint can check is_alive().
+    with _JOB_THREADS_LOCK:
+        job['thread'] = _JOB_THREADS.get(job_id)
+    return job
 
 
 def _emit_progress(progress_callback, progress, stage, message):
@@ -810,6 +870,7 @@ def analyze_start():
         daemon=True,
     )
     thread.start()
+    _update_analysis_job(job_id, thread=thread)
 
     return jsonify({
         'status': 'accepted',
@@ -830,6 +891,28 @@ def analyze_status(job_id):
     if not job:
         return _error_response('Analysis job not found', status_code=404, code='job_not_found')
 
+    # Detect silently-dead background threads (e.g. killed by Gunicorn worker
+    # recycling on Render free tier). If the job is still marked 'running' but
+    # its thread has exited and the last update is older than 3 minutes, surface
+    # a failure so the frontend can stop polling instead of waiting forever.
+    if job['status'] == 'running':
+        thread = job.get('thread')
+        thread_dead = thread is not None and not thread.is_alive()
+        try:
+            last_update = datetime.fromisoformat(job['updated_at'].rstrip('Z'))
+            stale = (datetime.utcnow() - last_update) > timedelta(minutes=3)
+        except (ValueError, TypeError):
+            stale = False
+        if thread_dead or stale:
+            _update_analysis_job(
+                job_id,
+                status='failed',
+                stage='Failed',
+                message='Analysis worker was interrupted. Please try again.',
+                error='Analysis worker stopped unexpectedly (possible server timeout or memory limit).',
+            )
+            job = _get_analysis_job(job_id)
+
     # Keep the progress payload small while the job is still running so polling
     # stays lightweight. The large dashboard result is attached only at the end.
     payload = {
@@ -847,6 +930,9 @@ def analyze_status(job_id):
     # Return the full analysis payload only after completion.
     if job['status'] == 'completed' and job.get('result') is not None:
         payload['result'] = job['result']
+
+    # Never expose the internal thread object in the HTTP response.
+    payload.pop('thread', None)
 
     return jsonify(payload)
 
