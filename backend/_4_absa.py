@@ -11,6 +11,7 @@ Rule-based aspect (topic) detection and sentiment scoring:
 import re
 from collections import defaultdict
 from textblob import TextBlob
+from textblob.exceptions import MissingCorpusError
 
 
 # ─── Aspect keyword lists ────────────────────────────────────────────────────────
@@ -96,6 +97,14 @@ ASPECT_PATTERNS = _compile_aspect_patterns(ASPECT_KEYWORDS)
 # ─── Per-review ABSA functions ──────────────────────────────────────────────────
 
 
+def _extract_sentence_texts(text):
+    """Return sentence strings, falling back to regex splitting when corpora are unavailable."""
+    try:
+        return [str(sentence) for sentence in TextBlob(text).sentences]  # type: ignore[attr-defined]
+    except MissingCorpusError:
+        return [part.strip() for part in re.split(r'(?<=[.!?])\s+', text) if part.strip()] or [text]
+
+
 def detect_aspects(text):
     """
     Scans a single review text and returns all aspects mentioned in it.
@@ -134,25 +143,23 @@ def get_aspect_sentiment(text, aspect):
     # Score only the specific sentences discussing the aspect.
     patterns = ASPECT_PATTERNS.get(aspect, [])
 
-    # Extract sentences mentioning the aspect.
     blob = TextBlob(text)
-    aspect_sentences = []
+    aspect_sentence_texts = []
 
-    for sentence in blob.sentences:  # type: ignore[attr-defined]
-        sentence_text = str(sentence)
+    for sentence_text in _extract_sentence_texts(text):
         for pattern in patterns:
             if pattern.search(sentence_text):
-                aspect_sentences.append(sentence)
+                aspect_sentence_texts.append(sentence_text)
                 break
 
-    if not aspect_sentences:
+    if not aspect_sentence_texts:
         # Fallback to whole review if no clear sentence boundary matches.
         polarity = blob.sentiment.polarity  # type: ignore[attr-defined]
         subjectivity = blob.sentiment.subjectivity  # type: ignore[attr-defined]
     else:
         # Average the scores if multiple sentences match.
-        polarities = [s.sentiment.polarity for s in aspect_sentences]
-        subjectivities = [s.sentiment.subjectivity for s in aspect_sentences]
+        polarities = [TextBlob(sentence_text).sentiment.polarity for sentence_text in aspect_sentence_texts]
+        subjectivities = [TextBlob(sentence_text).sentiment.subjectivity for sentence_text in aspect_sentence_texts]
         polarity = sum(polarities) / len(polarities)
         subjectivity = sum(subjectivities) / len(subjectivities)
 
